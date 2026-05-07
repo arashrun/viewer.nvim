@@ -9,7 +9,8 @@ local state = {
   transport = nil,
   active = false,
   bufnr = nil,
-  timer = nil,
+  preview_timer = nil,
+  viewport_timer = nil,
   reconnect_timer = nil,
   last_focused = true,
   reconnecting = false,
@@ -37,11 +38,19 @@ local function current_endpoint()
   return local_ep, remote
 end
 
-local function stop_timer()
-  if state.timer then
-    state.timer:stop()
-    state.timer:close()
-    state.timer = nil
+local function stop_preview_timer()
+  if state.preview_timer then
+    state.preview_timer:stop()
+    state.preview_timer:close()
+    state.preview_timer = nil
+  end
+end
+
+local function stop_viewport_timer()
+  if state.viewport_timer then
+    state.viewport_timer:stop()
+    state.viewport_timer:close()
+    state.viewport_timer = nil
   end
 end
 
@@ -63,7 +72,8 @@ local function clear_transport()
   state.reconnecting = false
 end
 
-local schedule_sync
+local schedule_preview_sync
+local schedule_viewport_sync
 local attach_autocmds
 local send_focus
 
@@ -103,18 +113,19 @@ local function connect_session(bufnr, transport)
   }))
   attach_autocmds()
   send_focus(true)
-  schedule_sync()
+  schedule_preview_sync()
+  schedule_viewport_sync()
   notify("preview started")
 end
 
-schedule_sync = function()
+schedule_preview_sync = function()
   if not state.active or not state.transport then
     return
   end
 
-  stop_timer()
-  state.timer = vim.loop.new_timer()
-  state.timer:start(state.config.debounce_ms, 0, vim.schedule_wrap(function()
+  stop_preview_timer()
+  state.preview_timer = vim.loop.new_timer()
+  state.preview_timer:start(state.config.debounce_ms, 0, vim.schedule_wrap(function()
     if not state.active or not state.transport then
       return
     end
@@ -125,6 +136,40 @@ schedule_sync = function()
     end
 
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local cursor = vim.api.nvim_win_get_cursor(vim.api.nvim_get_current_win())
+    local width = vim.api.nvim_win_get_width(vim.api.nvim_get_current_win())
+    local height = vim.api.nvim_win_get_height(vim.api.nvim_get_current_win())
+    local payload = {
+      bufnr = bufnr,
+      path = vim.api.nvim_buf_get_name(bufnr),
+      filetype = vim.bo[bufnr].filetype,
+      lines = lines,
+      line_count = #lines,
+      cursor = { row = cursor[1], col = cursor[2] },
+      viewport = { width = width, height = height },
+    }
+
+    state.transport:send(protocol.preview(payload))
+  end))
+end
+
+schedule_viewport_sync = function()
+  if not state.active or not state.transport then
+    return
+  end
+
+  stop_viewport_timer()
+  state.viewport_timer = vim.loop.new_timer()
+  state.viewport_timer:start(state.config.debounce_ms, 0, vim.schedule_wrap(function()
+    if not state.active or not state.transport then
+      return
+    end
+
+    local bufnr = state.bufnr
+    if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
     local winid = vim.api.nvim_get_current_win()
     local cursor = vim.api.nvim_win_get_cursor(winid)
     local width = vim.api.nvim_win_get_width(winid)
@@ -133,12 +178,10 @@ schedule_sync = function()
       bufnr = bufnr,
       path = vim.api.nvim_buf_get_name(bufnr),
       filetype = vim.bo[bufnr].filetype,
-      lines = lines,
       cursor = { row = cursor[1], col = cursor[2] },
       viewport = { width = width, height = height },
     }
 
-    state.transport:send(protocol.preview(payload))
     state.transport:send(protocol.viewport(payload))
   end))
 end
@@ -165,9 +208,16 @@ attach_autocmds = function()
         if not is_markdown_buffer(args.buf) then
           return
         end
+        schedule_preview_sync()
       end
 
-      schedule_sync()
+      if args.event == "TextChanged" or args.event == "TextChangedI" then
+        schedule_preview_sync()
+      end
+
+      if args.event == "CursorMoved" or args.event == "WinResized" or args.event == "VimResized" then
+        schedule_viewport_sync()
+      end
     end,
   })
 
@@ -180,7 +230,7 @@ attach_autocmds = function()
 
       send_focus(args.event == "FocusGained")
       if args.event == "FocusGained" then
-        schedule_sync()
+        schedule_viewport_sync()
       end
     end,
   })
@@ -252,7 +302,8 @@ end
 function M.toggle()
   if state.active then
     stop_reconnect_timer()
-    stop_timer()
+    stop_preview_timer()
+    stop_viewport_timer()
     if state.transport then
       state.transport:set_on_close(nil)
       state.transport:send(protocol.close())

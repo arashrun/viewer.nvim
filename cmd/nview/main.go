@@ -27,6 +27,7 @@ type ViewState struct {
 	Focused   bool           `json:"focused"`
 	FileType  string         `json:"filetype"`
 	Path      string         `json:"path"`
+	LineCount int            `json:"lineCount"`
 	Cursor    map[string]any `json:"cursor,omitempty"`
 	Viewport  map[string]any `json:"viewport,omitempty"`
 	Markdown  string         `json:"markdown"`
@@ -251,6 +252,7 @@ func updatePreview(hub *Hub, msg Message) {
 			}
 			md := joinLines(lines)
 			state.Markdown = md
+			state.LineCount = len(lines)
 			state.HTML = renderMarkdown(md)
 		}
 	})
@@ -363,6 +365,7 @@ const pageHTML = `<!doctype html>
     .content {
       padding: 22px 24px 30px;
       overflow: auto;
+      scroll-behavior: auto;
     }
     .status {
       display: inline-flex;
@@ -381,6 +384,9 @@ const pageHTML = `<!doctype html>
     article {
       max-width: 74ch;
       margin: 0 auto;
+    }
+    article > *:first-child {
+      margin-top: 0;
     }
     article img {
       max-width: 100%;
@@ -432,6 +438,19 @@ const pageHTML = `<!doctype html>
     const pathEl = document.getElementById('path');
     const infoEl = document.getElementById('info');
     const previewEl = document.getElementById('preview');
+    const contentEl = document.querySelector('.content');
+
+    function scrollPreview(state) {
+      if (!contentEl || !previewEl) {
+        return;
+      }
+
+      const cursorRow = state.cursor && typeof state.cursor.row === 'number' ? state.cursor.row : 1;
+      const lineCount = typeof state.lineCount === 'number' && state.lineCount > 1 ? state.lineCount : 1;
+      const progress = Math.max(0, Math.min(1, (cursorRow - 1) / Math.max(1, lineCount - 1)));
+      const maxScroll = Math.max(0, contentEl.scrollHeight - contentEl.clientHeight);
+      contentEl.scrollTop = maxScroll * progress;
+    }
 
     window.__applyState = function(state) {
       statusEl.textContent = state.connected ? 'connected' : 'waiting for nvim';
@@ -440,6 +459,7 @@ const pageHTML = `<!doctype html>
       const cursor = state.cursor ? 'cursor ' + (state.cursor.row || 0) + ':' + (state.cursor.col || 0) : 'cursor idle';
       infoEl.textContent = (state.filetype || 'unknown filetype') + ' · ' + cursor;
       previewEl.innerHTML = state.html || '<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>';
+      scrollPreview(state);
     };
     window.__applyState({{.StateJSON}});
   </script>
