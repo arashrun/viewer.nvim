@@ -50,6 +50,7 @@ type browser interface {
 
 type windowStateListener interface {
 	OnWindowBoundsChanged()
+	OnWindowFocusChanged(focused bool)
 }
 
 type webview struct {
@@ -243,7 +244,13 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 			}
 		case w32.WMActivate:
 			if wp == w32.WAInactive {
+				if w.windowStateListener != nil {
+					w.windowStateListener.OnWindowFocusChanged(false)
+				}
 				break
+			}
+			if w.windowStateListener != nil {
+				w.windowStateListener.OnWindowFocusChanged(true)
 			}
 			if w.autofocus {
 				w.browser.Focus()

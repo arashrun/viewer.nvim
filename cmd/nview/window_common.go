@@ -203,3 +203,12 @@ func (w *WindowController) OnWindowBoundsChanged() {
 	w.RememberBounds()
 	w.persistState()
 }
+
+func (w *WindowController) OnWindowFocusChanged(focused bool) {
+	w.state.Focused = focused
+	if focused {
+		_ = w.Show()
+		return
+	}
+	_ = w.Hide()
+}
