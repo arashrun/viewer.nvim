@@ -28,6 +28,28 @@ func (n nativeWindow) Resize(width, height int) {
 	n.view.SetSize(width, height, webview.HintNone)
 }
 
+func (n nativeWindow) SetBounds(bounds WindowBounds) {
+	n.view.SetSize(bounds.Width, bounds.Height, webview.HintNone)
+}
+
+func (n nativeWindow) SetTopMost(topMost bool) {
+	_ = topMost
+}
+
+func (n nativeWindow) Show() {
+}
+
+func (n nativeWindow) Hide() {
+	// webview_go does not expose hide/show on non-Windows backends here.
+}
+
+func (n nativeWindow) Focus() {
+}
+
+func (n nativeWindow) CurrentBounds() (WindowBounds, bool) {
+	return WindowBounds{}, false
+}
+
 func (n nativeWindow) Terminate() {
 	n.view.Terminate()
 }

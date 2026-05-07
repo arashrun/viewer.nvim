@@ -137,10 +137,14 @@ func renderAppHTML(state ViewState) string {
 
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
+	statePath := flag.String("state-file", defaultStatePath(), "window state file")
 	flag.Parse()
 
 	hub := NewHub()
 	window := NewWindowController("nview", "nview")
+	if state, err := loadWindowState(*statePath); err == nil {
+		window.state = mergeWindowState(defaultWindowState(), state)
+	}
 
 	go func() {
 		if err := serveTCP(*listenAddr, hub, window); err != nil {
@@ -156,6 +160,7 @@ func main() {
 		log.Printf("nview desktop error: %v", err)
 		os.Exit(1)
 	}
+	_ = saveWindowState(*statePath, window.state)
 }
 
 func serveTCP(addr string, hub *Hub, window *WindowController) error {
@@ -205,14 +210,16 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 		case "preview":
 			updatePreview(hub, msg)
 			_ = window.Show()
-			_ = window.Resize(msg.Payload)
 		case "viewport":
 			updateViewport(hub, msg)
-			_ = window.Resize(msg.Payload)
 		case "focus":
 			updateFocus(hub, msg)
 			if focused, ok := msg.Payload["focused"].(bool); ok {
-				_ = window.SetVisible(focused)
+				if focused {
+					_ = window.Show()
+				} else {
+					_ = window.Hide()
+				}
 			}
 		case "close":
 			hub.Update(func(state *ViewState) {

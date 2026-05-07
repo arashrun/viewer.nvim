@@ -10,6 +10,7 @@ local state = {
   active = false,
   bufnr = nil,
   timer = nil,
+  last_focused = true,
 }
 
 local function is_markdown_buffer(bufnr)
@@ -82,6 +83,7 @@ local function send_focus(is_focused)
   if state.transport then
     state.transport:send(protocol.focus(is_focused))
   end
+  state.last_focused = is_focused
 end
 
 local function attach_autocmds()
@@ -113,6 +115,9 @@ local function attach_autocmds()
       end
 
       send_focus(args.event == "FocusGained")
+      if args.event == "FocusGained" then
+        schedule_sync()
+      end
     end,
   })
 end

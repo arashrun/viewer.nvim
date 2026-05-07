@@ -8,6 +8,12 @@ type NativeWindow interface {
 	Eval(js string)
 	Dispatch(fn func())
 	Resize(width, height int)
+	SetBounds(bounds WindowBounds)
+	SetTopMost(topMost bool)
+	Show()
+	Hide()
+	Focus()
+	CurrentBounds() (WindowBounds, bool)
 	Terminate()
 }
 
@@ -15,6 +21,7 @@ type WindowController struct {
 	title  string
 	view   NativeWindow
 	hub    *Hub
+	state  WindowState
 	done   chan struct{}
 	closed bool
 }
@@ -22,6 +29,7 @@ type WindowController struct {
 func NewWindowController(title, _ string) *WindowController {
 	return &WindowController{
 		title: title,
+		state: defaultWindowState(),
 		done:  make(chan struct{}),
 	}
 }
@@ -31,6 +39,7 @@ func (w *WindowController) Attach(view NativeWindow, hub *Hub) error {
 	w.hub = hub
 	w.view.SetTitle(w.title)
 	w.view.SetHtml(renderAppHTML(hub.Snapshot()))
+	w.applyState()
 
 	sub := hub.Subscribe()
 	go func() {
@@ -63,14 +72,25 @@ func (w *WindowController) Show() error {
 	if w.view == nil {
 		return nil
 	}
+	w.state.Visible = true
 	w.view.Dispatch(func() {
+		w.view.Show()
+		w.view.SetTopMost(true)
+		w.view.Focus()
 		w.view.SetTitle(w.title)
 	})
 	return nil
 }
 
 func (w *WindowController) Hide() error {
-	return w.Stop()
+	w.state.Visible = false
+	if w.view == nil {
+		return nil
+	}
+	w.view.Dispatch(func() {
+		w.view.Hide()
+	})
+	return nil
 }
 
 func (w *WindowController) SetVisible(visible bool) error {
@@ -91,7 +111,36 @@ func (w *WindowController) Resize(payload map[string]any) error {
 	return nil
 }
 
+func (w *WindowController) RememberBounds() {
+	if w.view == nil {
+		return
+	}
+	if bounds, ok := w.view.CurrentBounds(); ok {
+		w.state.Bounds = bounds
+	}
+}
+
+func (w *WindowController) applyState() {
+	if w.view == nil {
+		return
+	}
+	bounds := w.state.Bounds
+	if bounds.Width > 0 && bounds.Height > 0 {
+		w.view.SetBounds(bounds)
+	}
+	w.view.SetTopMost(w.state.TopMost)
+	if w.state.Visible {
+		w.view.Show()
+	} else {
+		w.view.Hide()
+	}
+	if w.state.Focused {
+		w.view.Focus()
+	}
+}
+
 func (w *WindowController) Stop() error {
+	w.RememberBounds()
 	if !w.closed {
 		close(w.done)
 		w.closed = true
