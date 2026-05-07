@@ -64,6 +64,7 @@ local function clear_transport()
 end
 
 local attach_autocmds
+local send_focus
 
 local function connect_session(bufnr, transport)
   state.transport = transport
@@ -141,7 +142,7 @@ local function schedule_sync()
   end))
 end
 
-local function send_focus(is_focused)
+send_focus = function(is_focused)
   if state.transport then
     state.transport:send(protocol.focus(is_focused))
   end
