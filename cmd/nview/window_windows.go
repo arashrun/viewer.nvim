@@ -29,6 +29,7 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	swpFrameChanged = 0x0020
+	swpShowWindow   = 0x0040
 	gwlExStyle      = -20
 	wsExToolWindow  = 0x00000080
 	wsExAppWindow   = 0x00040000
@@ -110,7 +111,7 @@ func (n nativeWindow) SetTopMost(topMost bool) {
 		0,
 		0,
 		0,
-		swpNoActivate|swpNoMove|swpNoZOrder|swpFrameChanged,
+		swpNoActivate|swpNoMove|swpNoZOrder|swpFrameChanged|swpShowWindow,
 	)
 }
 

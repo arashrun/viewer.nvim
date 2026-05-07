@@ -1,6 +1,7 @@
 package main
 
 import "encoding/json"
+import "time"
 
 type NativeWindow interface {
 	SetTitle(title string)
@@ -83,6 +84,14 @@ func (w *WindowController) Show() error {
 		w.view.Focus()
 		w.view.SetTitle(w.title)
 	})
+	if w.view != nil {
+		go func(view NativeWindow) {
+			time.Sleep(50 * time.Millisecond)
+			view.Dispatch(func() {
+				view.SetTopMost(true)
+			})
+		}(w.view)
+	}
 	return nil
 }
 
