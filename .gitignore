@@ -1,0 +1,9 @@
+bin/
+
+# Local vendored copy of go-webview2 only keeps a small subset of files in git.
+third_party/go-webview2/.github/
+third_party/go-webview2/README.md
+third_party/go-webview2/cmd/
+third_party/go-webview2/internal/
+third_party/go-webview2/pkg/
+third_party/go-webview2/webviewloader/sdk/
