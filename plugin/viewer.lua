@@ -3,7 +3,19 @@ if vim.g.loaded_viewer_nvim == 1 then
 end
 vim.g.loaded_viewer_nvim = 1
 
-local viewer = require("viewer")
+local ok, viewer_or_err = pcall(require, "viewer")
+if not ok then
+  vim.schedule(function()
+    vim.notify(
+      "viewer.nvim load failed: " .. tostring(viewer_or_err) .. ". Make sure plugin/viewer.lua and lua/viewer/*.lua are both installed.",
+      vim.log.levels.ERROR,
+      { title = "viewer.nvim" }
+    )
+  end)
+  return
+end
+
+local viewer = viewer_or_err
 
 viewer.setup({})
 
