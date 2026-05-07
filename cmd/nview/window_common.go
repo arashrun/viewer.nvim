@@ -73,6 +73,7 @@ func (w *WindowController) Show() error {
 		return nil
 	}
 	w.state.Visible = true
+	w.state.Focused = true
 	w.view.Dispatch(func() {
 		w.view.Show()
 		w.view.SetTopMost(true)
@@ -84,6 +85,7 @@ func (w *WindowController) Show() error {
 
 func (w *WindowController) Hide() error {
 	w.state.Visible = false
+	w.state.Focused = false
 	if w.view == nil {
 		return nil
 	}
@@ -131,9 +133,12 @@ func (w *WindowController) applyState() {
 	w.view.SetTopMost(w.state.TopMost)
 	if w.state.Visible {
 		w.view.Show()
-	} else {
-		w.view.Hide()
+		if w.state.Focused {
+			w.view.Focus()
+		}
+		return
 	}
+	w.view.Hide()
 	if w.state.Focused {
 		w.view.Focus()
 	}

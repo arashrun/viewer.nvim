@@ -21,8 +21,8 @@ func defaultWindowState() WindowState {
 			Height: 620,
 		},
 		TopMost: true,
-		Visible: true,
-		Focused: true,
+		Visible: false,
+		Focused: false,
 	}
 }
 
