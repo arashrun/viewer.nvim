@@ -311,6 +311,8 @@ const pageHTML = `<!doctype html>
     body {
       margin: 0;
       height: 100vh;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
       background: radial-gradient(circle at top, #fff 0%, var(--bg) 55%, #ece3d4 100%);
       color: var(--text);
@@ -319,34 +321,38 @@ const pageHTML = `<!doctype html>
     header {
       display: flex;
       justify-content: space-between;
-      gap: 16px;
-      padding: 20px 24px;
+      align-items: center;
+      gap: 20px;
+      padding: 10px 16px;
       border-bottom: 1px solid var(--border);
       background: rgba(255,255,255,0.75);
       backdrop-filter: blur(10px);
       position: sticky;
       top: 0;
+      flex: 0 0 auto;
     }
     .title {
-      font-size: 14px;
+      font-size: 12px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.16em;
       color: var(--muted);
     }
     .meta {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--muted);
-      max-width: 60vw;
+      max-width: 52vw;
       text-align: right;
       word-break: break-word;
+      line-height: 1.35;
     }
     main {
       display: flex;
       flex-direction: column;
-      gap: 20px;
-      padding: 24px;
+      gap: 12px;
+      padding: 12px 16px 16px;
       max-width: 1100px;
-      height: calc(100vh - 72px);
+      flex: 1;
+      min-height: 0;
       margin: 0 auto;
       box-sizing: border-box;
     }
@@ -362,16 +368,16 @@ const pageHTML = `<!doctype html>
     }
     .card h2 {
       margin: 0;
-      padding: 16px 20px;
-      font-size: 13px;
-      letter-spacing: 0.12em;
+      padding: 10px 14px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       border-bottom: 1px solid var(--border);
       background: #fff;
     }
     .content {
       flex: 1;
-      padding: 22px 24px 30px;
+      padding: 16px 18px 22px;
       overflow: auto;
       scroll-behavior: auto;
       min-height: 0;
@@ -391,7 +397,7 @@ const pageHTML = `<!doctype html>
       color: #6d6454;
     }
     article {
-      max-width: 74ch;
+      max-width: 82ch;
       margin: 0 auto;
     }
     article > *:first-child {
