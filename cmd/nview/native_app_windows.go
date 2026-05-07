@@ -14,6 +14,7 @@ func runNativeApp(hub *Hub, window *WindowController) error {
 	if err := attachNativeWindow(window, w, hub); err != nil {
 		return err
 	}
+	w.SetWindowStateListener(window)
 	hideWebViewWindow(w)
 	w.Run()
 	return nil

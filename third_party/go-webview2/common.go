@@ -59,6 +59,9 @@ type WebView interface {
 	// Hide makes the native window invisible.
 	Hide() error
 
+	// SetWindowStateListener registers a listener for native window state changes.
+	SetWindowStateListener(listener interface{})
+
 	// Navigate navigates webview to the given URL. URL may be a data URI, i.e.
 	// "data:text/text,<html>...</html>". It is often ok not to url-encode it
 	// properly, webview will re-encode it for you.

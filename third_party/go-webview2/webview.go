@@ -48,11 +48,16 @@ type browser interface {
 	Hide() error
 }
 
+type windowStateListener interface {
+	OnWindowBoundsChanged()
+}
+
 type webview struct {
 	hwnd       uintptr
 	mainthread uintptr
 	browser    browser
 	autofocus  bool
+	windowStateListener windowStateListener
 	maxsz      w32.Point
 	minsz      w32.Point
 	m          sync.Mutex
@@ -232,6 +237,10 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 			return r
 		case w32.WMSize:
 			w.browser.Resize()
+		case w32.WMExitSizeMove:
+			if w.windowStateListener != nil {
+				w.windowStateListener.OnWindowBoundsChanged()
+			}
 		case w32.WMActivate:
 			if wp == w32.WAInactive {
 				break
@@ -364,6 +373,12 @@ func (w *webview) Hide() error {
 		_ = w.browser.Hide()
 	}
 	return nil
+}
+
+func (w *webview) SetWindowStateListener(listener interface{}) {
+	if v, ok := listener.(windowStateListener); ok {
+		w.windowStateListener = v
+	}
 }
 
 func (w *webview) Run() {

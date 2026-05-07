@@ -24,7 +24,6 @@ type WindowController struct {
 	saveState func(WindowState) error
 	state  WindowState
 	done   chan struct{}
-	autoSaveStop chan struct{}
 	closed bool
 }
 
@@ -90,7 +89,6 @@ func (w *WindowController) Show() error {
 		w.view.Focus()
 		w.view.SetTitle(w.title)
 	})
-	w.startAutoSaveBounds()
 	if w.view != nil {
 		go func(view NativeWindow) {
 			time.Sleep(50 * time.Millisecond)
@@ -112,7 +110,6 @@ func (w *WindowController) Hide() error {
 	w.view.Dispatch(func() {
 		w.view.Hide()
 	})
-	w.stopAutoSaveBounds()
 	w.persistState()
 	return nil
 }
@@ -164,7 +161,6 @@ func (w *WindowController) Stop() error {
 			w.view.Terminate()
 		})
 	}
-	w.stopAutoSaveBounds()
 	return nil
 }
 
@@ -175,34 +171,7 @@ func (w *WindowController) persistState() {
 	_ = w.saveState(w.state)
 }
 
-func (w *WindowController) startAutoSaveBounds() {
-	if w.autoSaveStop != nil {
-		return
-	}
-	stop := make(chan struct{})
-	w.autoSaveStop = stop
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if w.view == nil || !w.state.Visible {
-					continue
-				}
-				w.RememberBounds()
-				w.persistState()
-			case <-stop:
-				return
-			}
-		}
-	}()
-}
-
-func (w *WindowController) stopAutoSaveBounds() {
-	if w.autoSaveStop == nil {
-		return
-	}
-	close(w.autoSaveStop)
-	w.autoSaveStop = nil
+func (w *WindowController) OnWindowBoundsChanged() {
+	w.RememberBounds()
+	w.persistState()
 }
