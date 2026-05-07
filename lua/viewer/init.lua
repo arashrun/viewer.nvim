@@ -63,6 +63,8 @@ local function clear_transport()
   state.reconnecting = false
 end
 
+local attach_autocmds
+
 local function connect_session(bufnr, transport)
   state.transport = transport
   state.active = true
@@ -146,7 +148,7 @@ local function send_focus(is_focused)
   state.last_focused = is_focused
 end
 
-local function attach_autocmds()
+attach_autocmds = function()
   local group = vim.api.nvim_create_augroup("ViewerNvim", { clear = true })
 
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "BufEnter", "CursorMoved", "WinResized", "VimResized" }, {
