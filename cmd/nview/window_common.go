@@ -208,3 +208,7 @@ func (w *WindowController) OnWindowBoundsChanged() {
 func (w *WindowController) OnWindowFocusChanged(focused bool) {
 	w.state.Focused = focused
 }
+
+func (w *WindowController) OnWindowCloseRequested() {
+	_ = w.Hide()
+}

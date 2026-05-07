@@ -51,6 +51,7 @@ type browser interface {
 type windowStateListener interface {
 	OnWindowBoundsChanged()
 	OnWindowFocusChanged(focused bool)
+	OnWindowCloseRequested()
 }
 
 type webview struct {
@@ -256,6 +257,10 @@ func wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 				w.browser.Focus()
 			}
 		case w32.WMClose:
+			if w.windowStateListener != nil {
+				w.windowStateListener.OnWindowCloseRequested()
+				return 0
+			}
 			_, _, _ = w32.User32DestroyWindow.Call(hwnd)
 		case w32.WMDestroy:
 			w.Terminate()
