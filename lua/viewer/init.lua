@@ -12,7 +12,6 @@ local state = {
   preview_timer = nil,
   viewport_timer = nil,
   reconnect_timer = nil,
-  last_focused = true,
   reconnecting = false,
 }
 
@@ -75,7 +74,6 @@ end
 local schedule_preview_sync
 local schedule_viewport_sync
 local attach_autocmds
-local send_focus
 
 local function connect_session(bufnr, transport)
   state.transport = transport
@@ -112,7 +110,6 @@ local function connect_session(bufnr, transport)
     lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false),
   }))
   attach_autocmds()
-  send_focus(true)
   schedule_preview_sync()
   schedule_viewport_sync()
   notify("preview started")
@@ -186,13 +183,6 @@ schedule_viewport_sync = function()
   end))
 end
 
-send_focus = function(is_focused)
-  if state.transport then
-    state.transport:send(protocol.focus(is_focused))
-  end
-  state.last_focused = is_focused
-end
-
 attach_autocmds = function()
   local group = vim.api.nvim_create_augroup("ViewerNvim", { clear = true })
 
@@ -232,19 +222,6 @@ attach_autocmds = function()
     end,
   })
 
-  vim.api.nvim_create_autocmd({ "FocusGained", "FocusLost" }, {
-    group = group,
-    callback = function(args)
-      if not state.active then
-        return
-      end
-
-      send_focus(args.event == "FocusGained")
-      if args.event == "FocusGained" then
-        schedule_viewport_sync()
-      end
-    end,
-  })
 end
 
 local function pick_endpoint(callback)

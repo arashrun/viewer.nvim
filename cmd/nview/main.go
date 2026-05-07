@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/yuin/goldmark"
@@ -22,14 +23,8 @@ type Message struct {
 	Payload map[string]any `json:"payload,omitempty"`
 }
 
-type sessionState struct {
-	Connected bool
-	Focused   bool
-}
-
 type ViewState struct {
 	Connected bool           `json:"connected"`
-	Focused   bool           `json:"focused"`
 	FileType  string         `json:"filetype"`
 	Path      string         `json:"path"`
 	LineCount int            `json:"lineCount"`
@@ -45,18 +40,15 @@ type ViewState struct {
 type Hub struct {
 	mu      sync.Mutex
 	state   ViewState
-	sessions map[string]sessionState
 	clients map[chan struct{}]struct{}
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		state: ViewState{
-			Focused:   true,
 			Connected: false,
 			UpdatedAt: time.Now(),
 		},
-		sessions: make(map[string]sessionState),
 		clients: make(map[chan struct{}]struct{}),
 	}
 }
@@ -99,74 +91,6 @@ func (h *Hub) Update(mutator func(*ViewState)) {
 	h.state.UpdatedAt = time.Now()
 	h.mu.Unlock()
 	h.Broadcast()
-}
-
-func (h *Hub) SetSessionConnected(sessionID string, connected bool) (bool, bool) {
-	h.mu.Lock()
-	if connected {
-		session := h.sessions[sessionID]
-		session.Connected = true
-		h.sessions[sessionID] = session
-	} else {
-		delete(h.sessions, sessionID)
-	}
-	h.recomputeLocked()
-	connectedAny := h.state.Connected
-	focusedAny := h.state.Focused
-	h.state.UpdatedAt = time.Now()
-	h.mu.Unlock()
-	h.Broadcast()
-	return connectedAny, focusedAny
-}
-
-func (h *Hub) SetSessionFocused(sessionID string, focused bool) (bool, bool) {
-	h.mu.Lock()
-	session := h.sessions[sessionID]
-	session.Connected = true
-	session.Focused = focused
-	h.sessions[sessionID] = session
-	h.recomputeLocked()
-	connectedAny := h.state.Connected
-	focusedAny := h.state.Focused
-	h.state.UpdatedAt = time.Now()
-	h.mu.Unlock()
-	h.Broadcast()
-	return connectedAny, focusedAny
-}
-
-func (h *Hub) RemoveSession(sessionID string) (bool, bool) {
-	h.mu.Lock()
-	delete(h.sessions, sessionID)
-	h.recomputeLocked()
-	connectedAny := h.state.Connected
-	focusedAny := h.state.Focused
-	h.state.UpdatedAt = time.Now()
-	h.mu.Unlock()
-	h.Broadcast()
-	return connectedAny, focusedAny
-}
-
-func (h *Hub) recomputeLocked() {
-	connected := false
-	focused := false
-	for _, session := range h.sessions {
-		if session.Connected {
-			connected = true
-		}
-		if session.Focused {
-			focused = true
-		}
-	}
-	h.state.Connected = connected
-	h.state.Focused = focused
-}
-
-func syncWindowVisibility(window *WindowController, visible bool) {
-	if visible {
-		_ = window.Show()
-		return
-	}
-	_ = window.Hide()
 }
 
 var markdownRenderer = goldmark.New(
@@ -228,8 +152,12 @@ func main() {
 		window.state = mergeWindowState(defaultWindowState(), state)
 	}
 
+	var lastMessageAt int64
+	atomic.StoreInt64(&lastMessageAt, time.Now().UnixNano())
+	go monitorWindowInactivity(window, &lastMessageAt)
+
 	go func() {
-		if err := serveTCP(*listenAddr, hub, window); err != nil {
+		if err := serveTCP(*listenAddr, hub, window, &lastMessageAt); err != nil {
 			log.Fatalf("nview tcp server error: %v", err)
 		}
 	}()
@@ -245,7 +173,20 @@ func main() {
 	_ = saveWindowState(*statePath, window.state)
 }
 
-func serveTCP(addr string, hub *Hub, window *WindowController) error {
+func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if time.Since(time.Unix(0, atomic.LoadInt64(lastMessageAt))) >= 3*time.Second {
+			if window.state.Visible {
+				_ = window.Hide()
+			}
+		}
+	}
+}
+
+func serveTCP(addr string, hub *Hub, window *WindowController, lastMessageAt *int64) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -257,13 +198,12 @@ func serveTCP(addr string, hub *Hub, window *WindowController) error {
 		if err != nil {
 			return err
 		}
-		go handleConn(conn, hub, window)
+		go handleConn(conn, hub, window, lastMessageAt)
 	}
 }
 
-func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
+func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt *int64) {
 	defer conn.Close()
-	sessionID := conn.RemoteAddr().String()
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -277,11 +217,12 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 		}
 
 		log.Printf("recv %s", msg.Type)
+		atomic.StoreInt64(lastMessageAt, time.Now().UnixNano())
+		_ = window.Show()
 		switch msg.Type {
 		case "hello":
-			_, focusedAny := hub.SetSessionConnected(sessionID, true)
-			syncWindowVisibility(window, focusedAny)
 			hub.Update(func(state *ViewState) {
+				state.Connected = true
 				state.LastType = msg.Type
 			})
 			_ = encoder.Encode(Message{
@@ -290,28 +231,21 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 					"ok": true,
 				},
 			})
-			_ = window.Hide()
 		case "preview":
 			updatePreview(hub, msg)
 		case "viewport":
 			updateViewport(hub, msg)
-			_ = window.Show()
-		case "focus":
-			updateFocus(hub, msg)
-			if focused, ok := msg.Payload["focused"].(bool); ok {
-				_, focusedAny := hub.SetSessionFocused(sessionID, focused)
-				syncWindowVisibility(window, focusedAny)
-			}
 		case "close":
-			_, focusedAny := hub.RemoveSession(sessionID)
-			syncWindowVisibility(window, focusedAny)
 			hub.Update(func(state *ViewState) {
+				state.Connected = false
 				state.LastType = msg.Type
 			})
 		}
 	}
-	_, focusedAny := hub.RemoveSession(sessionID)
-	syncWindowVisibility(window, focusedAny)
+	hub.Update(func(state *ViewState) {
+		state.Connected = false
+		state.LastType = "disconnect"
+	})
 }
 
 func updatePreview(hub *Hub, msg Message) {
@@ -344,15 +278,6 @@ func updateViewport(hub *Hub, msg Message) {
 		state.Viewport = msg.Payload
 		if cursor, ok := msg.Payload["cursor"].(map[string]any); ok {
 			state.Cursor = cursor
-		}
-	})
-}
-
-func updateFocus(hub *Hub, msg Message) {
-	hub.Update(func(state *ViewState) {
-		state.LastType = msg.Type
-		if focused, ok := msg.Payload["focused"].(bool); ok {
-			state.Focused = focused
 		}
 	})
 }
