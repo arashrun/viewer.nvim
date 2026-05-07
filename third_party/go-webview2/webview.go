@@ -44,6 +44,8 @@ type browser interface {
 	Eval(script string)
 	NotifyParentWindowPositionChanged() error
 	Focus()
+	Show() error
+	Hide() error
 }
 
 type webview struct {
@@ -339,12 +341,29 @@ func (w *webview) CreateWithOptions(opts WindowOptions) bool {
 	if !w.browser.Embed(w.hwnd) {
 		return false
 	}
+	_ = w.Hide()
 	w.browser.Resize()
 	return true
 }
 
 func (w *webview) Destroy() {
 	_, _, _ = w32.User32PostMessageW.Call(w.hwnd, w32.WMClose, 0, 0)
+}
+
+func (w *webview) Show() error {
+	_, _, _ = w32.User32ShowWindow.Call(w.hwnd, w32.SWShow)
+	if w.browser != nil {
+		_ = w.browser.Show()
+	}
+	return nil
+}
+
+func (w *webview) Hide() error {
+	_, _, _ = w32.User32ShowWindow.Call(w.hwnd, 0)
+	if w.browser != nil {
+		_ = w.browser.Hide()
+	}
+	return nil
 }
 
 func (w *webview) Run() {

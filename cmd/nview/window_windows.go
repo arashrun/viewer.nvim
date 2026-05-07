@@ -115,11 +115,11 @@ func (n nativeWindow) SetTopMost(topMost bool) {
 }
 
 func (n nativeWindow) Show() {
-	_, _, _ = procShowWindow.Call(uintptr(n.view.Window()), sWShow)
+	_ = n.view.Show()
 }
 
 func (n nativeWindow) Hide() {
-	_, _, _ = procShowWindow.Call(uintptr(n.view.Window()), sWHide)
+	_ = n.view.Hide()
 }
 
 func (n nativeWindow) Focus() {
