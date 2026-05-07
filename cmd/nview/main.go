@@ -5,11 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"html/template"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -101,6 +99,19 @@ var markdownRenderer = goldmark.New(
 	),
 )
 
+type DesktopApp struct {
+	hub    *Hub
+	window *WindowController
+}
+
+func NewDesktopApp(hub *Hub, window *WindowController) *DesktopApp {
+	return &DesktopApp{hub: hub, window: window}
+}
+
+func (a *DesktopApp) Run() error {
+	return runNativeApp(a.hub, a.window)
+}
+
 func renderMarkdown(source string) template.HTML {
 	var buf bytes.Buffer
 	if err := markdownRenderer.Convert([]byte(source), &buf); err != nil {
@@ -111,11 +122,10 @@ func renderMarkdown(source string) template.HTML {
 
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
-	httpAddr := flag.String("http", "127.0.0.1:7358", "http listen address")
 	flag.Parse()
 
 	hub := NewHub()
-	window := NewWindowController("http://"+*httpAddr, "nview")
+	window := NewWindowController("nview", "nview")
 
 	go func() {
 		if err := serveTCP(*listenAddr, hub, window); err != nil {
@@ -123,56 +133,12 @@ func main() {
 		}
 	}()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_ = pageTmpl.Execute(w, hub.Snapshot())
-	})
-	mux.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(hub.Snapshot())
-	})
-	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-
-		notify := hub.Subscribe()
-		defer hub.Unsubscribe(notify)
-
-		ctx := r.Context()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-notify:
-				state := hub.Snapshot()
-				data, _ := json.Marshal(state)
-				fmt.Fprintf(w, "event: state\ndata: %s\n\n", data)
-				flusher.Flush()
-			}
-		}
-	})
-
-	server := &http.Server{
-		Addr:    *httpAddr,
-		Handler: mux,
-	}
-
 	log.Printf("nview tcp listening on %s", *listenAddr)
-	log.Printf("nview web listening on http://%s", *httpAddr)
-	go func() {
-		if err := window.Ensure(); err != nil {
-			log.Printf("window bootstrap skipped: %v", err)
-		}
-	}()
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		fmt.Fprintf(os.Stderr, "nview http listen error: %v\n", err)
+	log.Printf("nview desktop UI starting")
+
+	app := NewDesktopApp(hub, window)
+	if err := app.Run(); err != nil {
+		log.Printf("nview desktop error: %v", err)
 		os.Exit(1)
 	}
 }
@@ -300,7 +266,7 @@ func joinLines(lines []string) string {
 	return buf.String()
 }
 
-var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
+const pageHTML = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -443,21 +409,16 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
     const infoEl = document.getElementById('info');
     const previewEl = document.getElementById('preview');
 
-    function render(state) {
+    window.__applyState = function(state) {
       statusEl.textContent = state.connected ? 'connected' : 'waiting for nvim';
       statusEl.classList.toggle('off', !state.connected);
       pathEl.textContent = state.path || 'No document yet';
       const cursor = state.cursor ? 'cursor ' + (state.cursor.row || 0) + ':' + (state.cursor.col || 0) : 'cursor idle';
       infoEl.textContent = (state.filetype || 'unknown filetype') + ' · ' + cursor;
       previewEl.innerHTML = state.html || '<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>';
-    }
-
-    fetch('/state').then(r => r.json()).then(render).catch(() => {});
-
-    const es = new EventSource('/events');
-    es.addEventListener('state', ev => {
-      try { render(JSON.parse(ev.data)); } catch (err) {}
-    });
+    };
   </script>
 </body>
-</html>`))
+</html>`
+
+var pageTmpl = template.Must(template.New("page").Parse(pageHTML))
