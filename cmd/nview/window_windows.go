@@ -104,6 +104,7 @@ func (n nativeWindow) SetTopMost(topMost bool) {
 	if topMost {
 		insertAfter = hwndTopMost
 	}
+	flags := uintptr(swpNoActivate | swpNoMove | swpNoSize | swpFrameChanged | swpShowWindow)
 	_, _, _ = procSetWindowPos.Call(
 		hwnd,
 		insertAfter,
@@ -111,7 +112,7 @@ func (n nativeWindow) SetTopMost(topMost bool) {
 		0,
 		0,
 		0,
-		swpNoActivate|swpNoMove|swpNoZOrder|swpFrameChanged|swpShowWindow,
+		flags,
 	)
 }
 

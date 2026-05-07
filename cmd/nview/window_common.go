@@ -79,6 +79,7 @@ func (w *WindowController) Show() error {
 		if w.state.Bounds.Valid() {
 			w.view.SetBounds(w.state.Bounds)
 		}
+		w.view.SetTopMost(true)
 		w.view.Show()
 		w.view.SetTopMost(true)
 		w.view.Focus()
