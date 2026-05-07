@@ -75,17 +75,19 @@ local function spawn_nview(callback)
   end
 
   state.spawning = true
-  local job_id = vim.fn.jobstart(cmd, { detach = true })
-  if job_id <= 0 then
-    state.spawning = false
-    callback(false, "failed to start nview")
-    return
-  end
+  vim.schedule(function()
+    local job_id = vim.fn.jobstart(cmd, { detach = true })
+    if job_id <= 0 then
+      state.spawning = false
+      callback(false, "failed to start nview")
+      return
+    end
 
-  vim.defer_fn(function()
-    state.spawning = false
-    callback(true)
-  end, 500)
+    vim.defer_fn(function()
+      state.spawning = false
+      callback(true)
+    end, 500)
+  end)
 end
 
 local function stop_preview_timer()
