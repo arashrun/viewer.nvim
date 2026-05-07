@@ -154,6 +154,11 @@ func main() {
 
 	var lastMessageAt int64
 	atomic.StoreInt64(&lastMessageAt, time.Now().UnixNano())
+	window.SetInteractionChangedHandler(func(paused bool) {
+		if paused {
+			atomic.StoreInt64(&lastMessageAt, time.Now().UnixNano())
+		}
+	})
 	go monitorWindowInactivity(window, &lastMessageAt)
 
 	go func() {
@@ -178,6 +183,9 @@ func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		if window.InteractionPaused() {
+			continue
+		}
 		if time.Since(time.Unix(0, atomic.LoadInt64(lastMessageAt))) >= 3*time.Second {
 			if window.state.Visible {
 				_ = window.Hide()

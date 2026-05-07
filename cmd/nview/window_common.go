@@ -1,6 +1,7 @@
 package main
 
 import "encoding/json"
+import "sync/atomic"
 import "time"
 
 type NativeWindow interface {
@@ -23,8 +24,10 @@ type WindowController struct {
 	hub    *Hub
 	saveState func(WindowState) error
 	state  WindowState
+	interactionChanged func(bool)
 	done   chan struct{}
 	closed bool
+	interactionPaused int32
 }
 
 func NewWindowController(title, _ string) *WindowController {
@@ -37,6 +40,10 @@ func NewWindowController(title, _ string) *WindowController {
 
 func (w *WindowController) SetStateSaver(save func(WindowState) error) {
 	w.saveState = save
+}
+
+func (w *WindowController) SetInteractionChangedHandler(fn func(bool)) {
+	w.interactionChanged = fn
 }
 
 func (w *WindowController) ToggleHeaderVisible() bool {
@@ -206,9 +213,19 @@ func (w *WindowController) OnWindowBoundsChanged() {
 
 func (w *WindowController) OnWindowFocusChanged(focused bool) {
 	w.state.Focused = focused
-	if focused {
-		_ = w.Show()
-		return
+	atomic.StoreInt32(&w.interactionPaused, boolToInt32(focused))
+	if w.interactionChanged != nil {
+		w.interactionChanged(focused)
 	}
-	_ = w.Hide()
+}
+
+func (w *WindowController) InteractionPaused() bool {
+	return atomic.LoadInt32(&w.interactionPaused) == 1
+}
+
+func boolToInt32(v bool) int32 {
+	if v {
+		return 1
+	}
+	return 0
 }
