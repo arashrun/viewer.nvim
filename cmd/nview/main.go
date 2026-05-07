@@ -23,6 +23,18 @@ type Message struct {
 	Payload map[string]any `json:"payload,omitempty"`
 }
 
+type clientState struct {
+	Path      string
+	FileType  string
+	LineCount int
+	Markdown  string
+	HTML      template.HTML
+	Cursor    map[string]any
+	Viewport  map[string]any
+	LastType  string
+	UpdatedAt time.Time
+}
+
 type ViewState struct {
 	Connected bool           `json:"connected"`
 	FileType  string         `json:"filetype"`
@@ -40,6 +52,8 @@ type ViewState struct {
 type Hub struct {
 	mu      sync.Mutex
 	state   ViewState
+	clientsState map[string]*clientState
+	activeClient string
 	clients map[chan struct{}]struct{}
 }
 
@@ -49,6 +63,7 @@ func NewHub() *Hub {
 			Connected: false,
 			UpdatedAt: time.Now(),
 		},
+		clientsState: make(map[string]*clientState),
 		clients: make(map[chan struct{}]struct{}),
 	}
 }
@@ -89,6 +104,71 @@ func (h *Hub) Update(mutator func(*ViewState)) {
 	h.mu.Lock()
 	mutator(&h.state)
 	h.state.UpdatedAt = time.Now()
+	h.mu.Unlock()
+	h.Broadcast()
+}
+
+func (h *Hub) ensureClientLocked(sessionID string) *clientState {
+	client, ok := h.clientsState[sessionID]
+	if !ok {
+		client = &clientState{}
+		h.clientsState[sessionID] = client
+	}
+	return client
+}
+
+func (h *Hub) setActiveClientLocked(sessionID string) {
+	h.activeClient = sessionID
+	client := h.clientsState[sessionID]
+	if client == nil {
+		return
+	}
+	h.state.FileType = client.FileType
+	h.state.Path = client.Path
+	h.state.LineCount = client.LineCount
+	h.state.Markdown = client.Markdown
+	h.state.HTML = client.HTML
+	h.state.Cursor = client.Cursor
+	h.state.Viewport = client.Viewport
+	h.state.LastType = client.LastType
+	h.state.UpdatedAt = time.Now()
+}
+
+func (h *Hub) upsertClient(sessionID string, update func(*clientState)) {
+	h.mu.Lock()
+	client := h.ensureClientLocked(sessionID)
+	update(client)
+	client.UpdatedAt = time.Now()
+	h.setActiveClientLocked(sessionID)
+	h.state.Connected = len(h.clientsState) > 0
+	h.mu.Unlock()
+	h.Broadcast()
+}
+
+func (h *Hub) removeClient(sessionID string) {
+	h.mu.Lock()
+	delete(h.clientsState, sessionID)
+	if h.activeClient == sessionID {
+		h.activeClient = ""
+		for id := range h.clientsState {
+			h.activeClient = id
+			break
+		}
+	}
+	if h.activeClient != "" {
+		h.setActiveClientLocked(h.activeClient)
+	} else {
+		h.state.Path = ""
+		h.state.FileType = ""
+		h.state.LineCount = 0
+		h.state.Markdown = ""
+		h.state.HTML = ""
+		h.state.Cursor = nil
+		h.state.Viewport = nil
+		h.state.LastType = "disconnect"
+		h.state.Connected = false
+		h.state.UpdatedAt = time.Now()
+	}
 	h.mu.Unlock()
 	h.Broadcast()
 }
@@ -208,6 +288,7 @@ func serveTCP(addr string, hub *Hub, window *WindowController, lastMessageAt *in
 
 func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt *int64) {
 	defer conn.Close()
+	sessionID := conn.RemoteAddr().String()
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -225,9 +306,8 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 		_ = window.Show()
 		switch msg.Type {
 		case "hello":
-			hub.Update(func(state *ViewState) {
-				state.Connected = true
-				state.LastType = msg.Type
+			hub.upsertClient(sessionID, func(client *clientState) {
+				client.LastType = msg.Type
 			})
 			_ = encoder.Encode(Message{
 				Type: "ack",
@@ -236,30 +316,27 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 				},
 			})
 		case "preview":
-			updatePreview(hub, msg)
+			updatePreview(hub, sessionID, msg)
 		case "viewport":
-			updateViewport(hub, msg)
+			updateViewport(hub, sessionID, msg)
 		case "close":
-			hub.Update(func(state *ViewState) {
-				state.Connected = false
-				state.LastType = msg.Type
+			hub.upsertClient(sessionID, func(client *clientState) {
+				client.LastType = msg.Type
 			})
+			hub.removeClient(sessionID)
 		}
 	}
-	hub.Update(func(state *ViewState) {
-		state.Connected = false
-		state.LastType = "disconnect"
-	})
+	hub.removeClient(sessionID)
 }
 
-func updatePreview(hub *Hub, msg Message) {
-	hub.Update(func(state *ViewState) {
-		state.LastType = msg.Type
+func updatePreview(hub *Hub, sessionID string, msg Message) {
+	hub.upsertClient(sessionID, func(client *clientState) {
+		client.LastType = msg.Type
 		if v, ok := msg.Payload["path"].(string); ok {
-			state.Path = v
+			client.Path = v
 		}
 		if v, ok := msg.Payload["filetype"].(string); ok {
-			state.FileType = v
+			client.FileType = v
 		}
 		if v, ok := msg.Payload["lines"].([]any); ok {
 			lines := make([]string, 0, len(v))
@@ -269,19 +346,19 @@ func updatePreview(hub *Hub, msg Message) {
 				}
 			}
 			md := joinLines(lines)
-			state.Markdown = md
-			state.LineCount = len(lines)
-			state.HTML = renderMarkdown(md)
+			client.Markdown = md
+			client.LineCount = len(lines)
+			client.HTML = renderMarkdown(md)
 		}
 	})
 }
 
-func updateViewport(hub *Hub, msg Message) {
-	hub.Update(func(state *ViewState) {
-		state.LastType = msg.Type
-		state.Viewport = msg.Payload
+func updateViewport(hub *Hub, sessionID string, msg Message) {
+	hub.upsertClient(sessionID, func(client *clientState) {
+		client.LastType = msg.Type
+		client.Viewport = msg.Payload
 		if cursor, ok := msg.Payload["cursor"].(map[string]any); ok {
-			state.Cursor = cursor
+			client.Cursor = cursor
 		}
 	})
 }
