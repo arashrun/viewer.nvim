@@ -310,6 +310,8 @@ const pageHTML = `<!doctype html>
     }
     body {
       margin: 0;
+      height: 100vh;
+      overflow: hidden;
       background: radial-gradient(circle at top, #fff 0%, var(--bg) 55%, #ece3d4 100%);
       color: var(--text);
       font: 15px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -339,12 +341,14 @@ const pageHTML = `<!doctype html>
       word-break: break-word;
     }
     main {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
       gap: 20px;
       padding: 24px;
       max-width: 1100px;
+      height: calc(100vh - 72px);
       margin: 0 auto;
+      box-sizing: border-box;
     }
     .card {
       background: var(--panel);
@@ -352,6 +356,9 @@ const pageHTML = `<!doctype html>
       border-radius: 18px;
       box-shadow: 0 10px 30px rgba(35, 31, 22, 0.06);
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
     .card h2 {
       margin: 0;
@@ -363,9 +370,11 @@ const pageHTML = `<!doctype html>
       background: #fff;
     }
     .content {
+      flex: 1;
       padding: 22px 24px 30px;
       overflow: auto;
       scroll-behavior: auto;
+      min-height: 0;
     }
     .status {
       display: inline-flex;

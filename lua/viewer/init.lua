@@ -196,7 +196,15 @@ end
 attach_autocmds = function()
   local group = vim.api.nvim_create_augroup("ViewerNvim", { clear = true })
 
-  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "BufEnter", "CursorMoved", "WinResized", "VimResized" }, {
+  vim.api.nvim_create_autocmd({
+    "TextChanged",
+    "TextChangedI",
+    "BufEnter",
+    "CursorMoved",
+    "CursorMovedI",
+    "WinResized",
+    "VimResized",
+  }, {
     group = group,
     callback = function(args)
       if not state.active then
@@ -215,7 +223,10 @@ attach_autocmds = function()
         schedule_preview_sync()
       end
 
-      if args.event == "CursorMoved" or args.event == "WinResized" or args.event == "VimResized" then
+      if args.event == "CursorMoved"
+        or args.event == "CursorMovedI"
+        or args.event == "WinResized"
+        or args.event == "VimResized" then
         schedule_viewport_sync()
       end
     end,
