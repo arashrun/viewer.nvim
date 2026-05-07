@@ -39,11 +39,25 @@ func (w *WindowController) SetStateSaver(save func(WindowState) error) {
 	w.saveState = save
 }
 
+func (w *WindowController) ToggleHeaderVisible() bool {
+	w.state.HeaderVisible = !w.state.HeaderVisible
+	w.persistState()
+	w.applyHeaderVisibility()
+	return w.state.HeaderVisible
+}
+
+func (w *WindowController) SetHeaderVisible(visible bool) {
+	w.state.HeaderVisible = visible
+	w.persistState()
+	w.applyHeaderVisibility()
+}
+
 func (w *WindowController) Attach(view NativeWindow, hub *Hub) error {
 	w.view = view
 	w.hub = hub
 	w.view.SetTitle(w.title)
-	w.view.SetHtml(renderAppHTML(hub.Snapshot()))
+	w.view.SetHtml(renderAppHTML(hub.Snapshot(), w.state.HeaderVisible))
+	w.applyHeaderVisibility()
 	w.applyState()
 
 	sub := hub.Subscribe()
@@ -147,6 +161,20 @@ func (w *WindowController) applyState() {
 		return
 	}
 	w.view.Hide()
+}
+
+func (w *WindowController) applyHeaderVisibility() {
+	if w.view == nil {
+		return
+	}
+	headerVisible := w.state.HeaderVisible
+	w.view.Dispatch(func() {
+		if headerVisible {
+			w.view.Eval("window.__setHeaderVisible(true);")
+		} else {
+			w.view.Eval("window.__setHeaderVisible(false);")
+		}
+	})
 }
 
 func (w *WindowController) Stop() error {

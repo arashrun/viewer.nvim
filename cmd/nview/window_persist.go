@@ -23,9 +23,24 @@ func loadWindowState(path string) (WindowState, error) {
 	if err != nil {
 		return WindowState{}, err
 	}
-	var state WindowState
-	if err := json.Unmarshal(data, &state); err != nil {
+	var raw struct {
+		Bounds        WindowBounds `json:"bounds"`
+		TopMost       bool         `json:"topMost"`
+		Visible       bool         `json:"visible"`
+		Focused       bool         `json:"focused"`
+		HeaderVisible *bool        `json:"headerVisible"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return WindowState{}, err
+	}
+	state := WindowState{
+		Bounds:  raw.Bounds,
+		TopMost: raw.TopMost,
+		Visible: raw.Visible,
+		Focused: raw.Focused,
+	}
+	if raw.HeaderVisible != nil {
+		state.HeaderVisible = *raw.HeaderVisible
 	}
 	return state, nil
 }

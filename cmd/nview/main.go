@@ -28,6 +28,7 @@ type ViewState struct {
 	FileType  string         `json:"filetype"`
 	Path      string         `json:"path"`
 	LineCount int            `json:"lineCount"`
+	HeaderVisible bool       `json:"headerVisible"`
 	Cursor    map[string]any `json:"cursor,omitempty"`
 	Viewport  map[string]any `json:"viewport,omitempty"`
 	Markdown  string         `json:"markdown"`
@@ -121,15 +122,17 @@ func renderMarkdown(source string) template.HTML {
 	return template.HTML(buf.String())
 }
 
-func renderAppHTML(state ViewState) string {
+func renderAppHTML(state ViewState, headerVisible bool) string {
 	data, _ := json.Marshal(state)
 	var buf bytes.Buffer
 	if err := pageTmpl.Execute(&buf, struct {
 		ViewState
-		StateJSON template.JS
+		StateJSON     template.JS
+		HeaderVisible bool
 	}{
-		ViewState: state,
-		StateJSON: template.JS(data),
+		ViewState:     state,
+		StateJSON:     template.JS(data),
+		HeaderVisible: headerVisible,
 	}); err != nil {
 		return ""
 	}
@@ -374,6 +377,11 @@ const pageHTML = `<!doctype html>
       text-transform: uppercase;
       border-bottom: 1px solid var(--border);
       background: #fff;
+      cursor: pointer;
+      user-select: none;
+    }
+    .card h2:hover {
+      background: #fbfaf7;
     }
     .content {
       flex: 1;
@@ -427,9 +435,18 @@ const pageHTML = `<!doctype html>
     .error {
       color: #b42318;
     }
+    body.header-hidden header {
+      max-height: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+      border-bottom-width: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
   </style>
 </head>
-<body>
+<body{{if not .HeaderVisible}} class="header-hidden"{{end}}>
   <header>
     <div>
       <div class="title">nview</div>
@@ -454,6 +471,8 @@ const pageHTML = `<!doctype html>
     const infoEl = document.getElementById('info');
     const previewEl = document.getElementById('preview');
     const contentEl = document.querySelector('.content');
+    const previewHeadingEl = document.querySelector('.card h2');
+    let headerVisible = {{if .HeaderVisible}}true{{else}}false{{end}};
 
     function scrollPreview(state) {
       if (!contentEl || !previewEl) {
@@ -467,6 +486,27 @@ const pageHTML = `<!doctype html>
       contentEl.scrollTop = maxScroll * progress;
     }
 
+    function applyHeaderVisible(visible) {
+      headerVisible = !!visible;
+      document.body.classList.toggle('header-hidden', !headerVisible);
+    }
+
+    window.__setHeaderVisible = function(visible) {
+      applyHeaderVisible(visible);
+    };
+
+    if (previewHeadingEl) {
+      previewHeadingEl.addEventListener('click', function() {
+        if (typeof window.toggleHeaderVisible === 'function') {
+          window.toggleHeaderVisible().then(function(nextVisible) {
+            applyHeaderVisible(nextVisible);
+          });
+          return;
+        }
+        applyHeaderVisible(!headerVisible);
+      });
+    }
+
     window.__applyState = function(state) {
       statusEl.textContent = state.connected ? 'connected' : 'waiting for nvim';
       statusEl.classList.toggle('off', !state.connected);
@@ -474,8 +514,12 @@ const pageHTML = `<!doctype html>
       const cursor = state.cursor ? 'cursor ' + (state.cursor.row || 0) + ':' + (state.cursor.col || 0) : 'cursor idle';
       infoEl.textContent = (state.filetype || 'unknown filetype') + ' · ' + cursor;
       previewEl.innerHTML = state.html || '<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>';
+      if (typeof state.headerVisible === 'boolean') {
+        applyHeaderVisible(state.headerVisible);
+      }
       scrollPreview(state);
     };
+    applyHeaderVisible(headerVisible);
     window.__applyState({{.StateJSON}});
   </script>
 </body>

@@ -154,6 +154,9 @@ func (n nativeWindow) Terminate() {
 func attachNativeWindow(window *WindowController, w webview2.WebView, hub *Hub) error {
 	n := nativeWindow{view: w}
 	n.setToolWindowStyle()
+	_ = w.Bind("toggleHeaderVisible", func() bool {
+		return window.ToggleHeaderVisible()
+	})
 	return window.Attach(n, hub)
 }
 

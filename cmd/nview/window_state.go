@@ -8,10 +8,11 @@ type WindowBounds struct {
 }
 
 type WindowState struct {
-	Bounds   WindowBounds `json:"bounds"`
-	TopMost  bool         `json:"topMost"`
-	Visible  bool         `json:"visible"`
-	Focused  bool         `json:"focused"`
+	Bounds        WindowBounds `json:"bounds"`
+	TopMost       bool         `json:"topMost"`
+	Visible       bool         `json:"visible"`
+	Focused       bool         `json:"focused"`
+	HeaderVisible bool         `json:"headerVisible"`
 }
 
 func defaultWindowState() WindowState {
@@ -23,6 +24,7 @@ func defaultWindowState() WindowState {
 		TopMost: true,
 		Visible: false,
 		Focused: false,
+		HeaderVisible: true,
 	}
 }
 
@@ -40,6 +42,9 @@ func mergeWindowState(base, loaded WindowState) WindowState {
 	}
 	if loaded.Bounds.Width <= 0 || loaded.Bounds.Height <= 0 {
 		loaded.Bounds = base.Bounds
+	}
+	if !loaded.HeaderVisible && !base.HeaderVisible {
+		loaded.HeaderVisible = true
 	}
 	return loaded
 }
