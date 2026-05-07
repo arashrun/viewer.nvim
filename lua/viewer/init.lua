@@ -63,6 +63,7 @@ local function clear_transport()
   state.reconnecting = false
 end
 
+local schedule_sync
 local attach_autocmds
 local send_focus
 
@@ -106,7 +107,7 @@ local function connect_session(bufnr, transport)
   notify("preview started")
 end
 
-local function schedule_sync()
+schedule_sync = function()
   if not state.active or not state.transport then
     return
   end
