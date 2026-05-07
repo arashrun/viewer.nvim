@@ -15,6 +15,7 @@ var (
 	procSetFocus        = user32.NewProc("SetFocus")
 	procSetWindowPos    = user32.NewProc("SetWindowPos")
 	procGetWindowRect   = user32.NewProc("GetWindowRect")
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
 	procGetWindowLong   = user32.NewProc("GetWindowLongPtrW")
 	procSetWindowLong   = user32.NewProc("SetWindowLongPtrW")
 )
@@ -122,6 +123,15 @@ func (n nativeWindow) Hide() {
 
 func (n nativeWindow) Focus() {
 	_, _, _ = procSetFocus.Call(uintptr(n.view.Window()))
+}
+
+func (n nativeWindow) IsForeground() bool {
+	hwnd := uintptr(n.view.Window())
+	if hwnd == 0 {
+		return false
+	}
+	foreground, _, _ := procGetForegroundWindow.Call()
+	return foreground == hwnd
 }
 
 func (n nativeWindow) CurrentBounds() (WindowBounds, bool) {

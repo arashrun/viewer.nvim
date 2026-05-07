@@ -42,6 +42,10 @@ func (n nativeWindow) Hide() {
 func (n nativeWindow) Focus() {
 }
 
+func (n nativeWindow) IsForeground() bool {
+	return false
+}
+
 func (n nativeWindow) CurrentBounds() (WindowBounds, bool) {
 	return WindowBounds{}, false
 }
