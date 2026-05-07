@@ -10,7 +10,9 @@ local state = {
   active = false,
   bufnr = nil,
   timer = nil,
+  reconnect_timer = nil,
   last_focused = true,
+  reconnecting = false,
 }
 
 local function is_markdown_buffer(bufnr)
@@ -41,6 +43,64 @@ local function stop_timer()
     state.timer:close()
     state.timer = nil
   end
+end
+
+local function stop_reconnect_timer()
+  if state.reconnect_timer then
+    state.reconnect_timer:stop()
+    state.reconnect_timer:close()
+    state.reconnect_timer = nil
+  end
+end
+
+local function clear_transport()
+  if state.transport then
+    state.transport:set_on_close(nil)
+    state.transport:close()
+  end
+  state.transport = nil
+  state.active = false
+  state.reconnecting = false
+end
+
+local function connect_session(bufnr, transport)
+  state.transport = transport
+  state.active = true
+  state.reconnecting = false
+  state.transport:set_on_close(function()
+    if not state.active then
+      return
+    end
+    state.transport = nil
+    state.active = false
+    if not state.reconnecting then
+      state.reconnecting = true
+      notify("nview disconnected, retrying...", vim.log.levels.WARN)
+      stop_reconnect_timer()
+      state.reconnect_timer = vim.loop.new_timer()
+      state.reconnect_timer:start(1000, 1000, vim.schedule_wrap(function()
+        if state.active or not state.reconnecting then
+          return
+        end
+        M.preview()
+      end))
+    end
+  end)
+
+  state.transport:send(protocol.hello({
+    plugin = "viewer.nvim",
+    version = "0.1.0",
+  }))
+  state.transport:send(protocol.preview({
+    bufnr = bufnr,
+    path = vim.api.nvim_buf_get_name(bufnr),
+    filetype = vim.bo[bufnr].filetype,
+    lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false),
+  }))
+  attach_autocmds()
+  send_focus(true)
+  schedule_sync()
+  notify("preview started")
 end
 
 local function schedule_sync()
@@ -163,22 +223,8 @@ local function start_preview(bufnr)
       return
     end
 
-    state.transport = transport_or_err
-    state.active = true
-    state.transport:send(protocol.hello({
-      plugin = "viewer.nvim",
-      version = "0.1.0",
-    }))
-    state.transport:send(protocol.preview({
-      bufnr = bufnr,
-      path = vim.api.nvim_buf_get_name(bufnr),
-      filetype = vim.bo[bufnr].filetype,
-      lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false),
-    }))
-    attach_autocmds()
-    send_focus(true)
-    schedule_sync()
-    notify("preview started")
+    stop_reconnect_timer()
+    connect_session(bufnr, transport_or_err)
   end)
 end
 
@@ -201,14 +247,13 @@ end
 
 function M.toggle()
   if state.active then
-    if state.transport then
-      state.transport:send(protocol.close())
-      state.transport:close()
-    end
-
+    stop_reconnect_timer()
     stop_timer()
-    state.active = false
-    state.transport = nil
+    if state.transport then
+      state.transport:set_on_close(nil)
+      state.transport:send(protocol.close())
+    end
+    clear_transport()
     notify("preview stopped")
     return
   end
