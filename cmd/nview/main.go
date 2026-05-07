@@ -22,6 +22,11 @@ type Message struct {
 	Payload map[string]any `json:"payload,omitempty"`
 }
 
+type sessionState struct {
+	Connected bool
+	Focused   bool
+}
+
 type ViewState struct {
 	Connected bool           `json:"connected"`
 	Focused   bool           `json:"focused"`
@@ -40,6 +45,7 @@ type ViewState struct {
 type Hub struct {
 	mu      sync.Mutex
 	state   ViewState
+	sessions map[string]sessionState
 	clients map[chan struct{}]struct{}
 }
 
@@ -50,6 +56,7 @@ func NewHub() *Hub {
 			Connected: false,
 			UpdatedAt: time.Now(),
 		},
+		sessions: make(map[string]sessionState),
 		clients: make(map[chan struct{}]struct{}),
 	}
 }
@@ -92,6 +99,74 @@ func (h *Hub) Update(mutator func(*ViewState)) {
 	h.state.UpdatedAt = time.Now()
 	h.mu.Unlock()
 	h.Broadcast()
+}
+
+func (h *Hub) SetSessionConnected(sessionID string, connected bool) (bool, bool) {
+	h.mu.Lock()
+	if connected {
+		session := h.sessions[sessionID]
+		session.Connected = true
+		h.sessions[sessionID] = session
+	} else {
+		delete(h.sessions, sessionID)
+	}
+	h.recomputeLocked()
+	connectedAny := h.state.Connected
+	focusedAny := h.state.Focused
+	h.state.UpdatedAt = time.Now()
+	h.mu.Unlock()
+	h.Broadcast()
+	return connectedAny, focusedAny
+}
+
+func (h *Hub) SetSessionFocused(sessionID string, focused bool) (bool, bool) {
+	h.mu.Lock()
+	session := h.sessions[sessionID]
+	session.Connected = true
+	session.Focused = focused
+	h.sessions[sessionID] = session
+	h.recomputeLocked()
+	connectedAny := h.state.Connected
+	focusedAny := h.state.Focused
+	h.state.UpdatedAt = time.Now()
+	h.mu.Unlock()
+	h.Broadcast()
+	return connectedAny, focusedAny
+}
+
+func (h *Hub) RemoveSession(sessionID string) (bool, bool) {
+	h.mu.Lock()
+	delete(h.sessions, sessionID)
+	h.recomputeLocked()
+	connectedAny := h.state.Connected
+	focusedAny := h.state.Focused
+	h.state.UpdatedAt = time.Now()
+	h.mu.Unlock()
+	h.Broadcast()
+	return connectedAny, focusedAny
+}
+
+func (h *Hub) recomputeLocked() {
+	connected := false
+	focused := false
+	for _, session := range h.sessions {
+		if session.Connected {
+			connected = true
+		}
+		if session.Focused {
+			focused = true
+		}
+	}
+	h.state.Connected = connected
+	h.state.Focused = focused
+}
+
+func syncWindowVisibility(window *WindowController, visible bool) {
+	if visible {
+		_ = window.Show()
+		return
+	}
+	_ = window.Hide()
 }
 
 var markdownRenderer = goldmark.New(
@@ -188,6 +263,7 @@ func serveTCP(addr string, hub *Hub, window *WindowController) error {
 
 func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 	defer conn.Close()
+	sessionID := conn.RemoteAddr().String()
 
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -203,8 +279,9 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 		log.Printf("recv %s", msg.Type)
 		switch msg.Type {
 		case "hello":
+			_, focusedAny := hub.SetSessionConnected(sessionID, true)
+			syncWindowVisibility(window, focusedAny)
 			hub.Update(func(state *ViewState) {
-				state.Connected = true
 				state.LastType = msg.Type
 			})
 			_ = encoder.Encode(Message{
@@ -221,20 +298,19 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 		case "focus":
 			updateFocus(hub, msg)
 			if focused, ok := msg.Payload["focused"].(bool); ok {
-				if focused {
-					_ = window.Show()
-				} else {
-					_ = window.Hide()
-				}
+				_, focusedAny := hub.SetSessionFocused(sessionID, focused)
+				syncWindowVisibility(window, focusedAny)
 			}
 		case "close":
+			_, focusedAny := hub.RemoveSession(sessionID)
+			syncWindowVisibility(window, focusedAny)
 			hub.Update(func(state *ViewState) {
-				state.Connected = false
 				state.LastType = msg.Type
 			})
-			_ = window.Hide()
 		}
 	}
+	_, focusedAny := hub.RemoveSession(sessionID)
+	syncWindowVisibility(window, focusedAny)
 }
 
 func updatePreview(hub *Hub, msg Message) {
