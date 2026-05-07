@@ -15,7 +15,7 @@ M.defaults = {
     host = "127.0.0.1",
     port = 7357,
   },
-  probe_timeout_ms = 250,
+  probe_timeout_ms = 1000,
   debounce_ms = 120,
   auto_start = false,
 }

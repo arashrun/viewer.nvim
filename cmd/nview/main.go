@@ -115,9 +115,10 @@ func main() {
 	flag.Parse()
 
 	hub := NewHub()
+	window := NewWindowController("http://"+*httpAddr, "nview")
 
 	go func() {
-		if err := serveTCP(*listenAddr, hub); err != nil {
+		if err := serveTCP(*listenAddr, hub, window); err != nil {
 			log.Fatalf("nview tcp server error: %v", err)
 		}
 	}()
@@ -165,13 +166,18 @@ func main() {
 
 	log.Printf("nview tcp listening on %s", *listenAddr)
 	log.Printf("nview web listening on http://%s", *httpAddr)
+	go func() {
+		if err := window.Ensure(); err != nil {
+			log.Printf("window bootstrap skipped: %v", err)
+		}
+	}()
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(os.Stderr, "nview http listen error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func serveTCP(addr string, hub *Hub) error {
+func serveTCP(addr string, hub *Hub, window *WindowController) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -183,11 +189,11 @@ func serveTCP(addr string, hub *Hub) error {
 		if err != nil {
 			return err
 		}
-		go handleConn(conn, hub)
+		go handleConn(conn, hub, window)
 	}
 }
 
-func handleConn(conn net.Conn, hub *Hub) {
+func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
@@ -214,17 +220,25 @@ func handleConn(conn net.Conn, hub *Hub) {
 					"ok": true,
 				},
 			})
+			_ = window.Show()
 		case "preview":
 			updatePreview(hub, msg)
+			_ = window.Show()
+			_ = window.Resize(msg.Payload)
 		case "viewport":
 			updateViewport(hub, msg)
+			_ = window.Resize(msg.Payload)
 		case "focus":
 			updateFocus(hub, msg)
+			if focused, ok := msg.Payload["focused"].(bool); ok {
+				_ = window.SetVisible(focused)
+			}
 		case "close":
 			hub.Update(func(state *ViewState) {
 				state.Connected = false
 				state.LastType = msg.Type
 			})
+			_ = window.Hide()
 		}
 	}
 }
