@@ -1,7 +1,8 @@
+//go:build linux || darwin
+
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -19,17 +20,11 @@ func runNativeApp(hub *Hub, window *WindowController) error {
 
 	w.SetTitle("nview")
 	w.SetSize(1200, 900, webview.HintNone)
-	if err := window.Attach(w, hub); err != nil {
+	if err := attachNativeWindow(window, w, hub); err != nil {
 		return err
 	}
 	w.Run()
 	return nil
-}
-
-func renderAppHTML(state ViewState) string {
-	data, _ := json.Marshal(state)
-	jsState := string(data)
-	return strings.ReplaceAll(pageHTML, "{{STATE}}", jsState)
 }
 
 func hasGraphicalSession() bool {

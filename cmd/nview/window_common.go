@@ -1,16 +1,19 @@
 package main
 
-import (
-	"encoding/json"
-	"sync"
+import "encoding/json"
 
-	webview "github.com/webview/webview_go"
-)
+type NativeWindow interface {
+	SetTitle(title string)
+	SetHtml(html string)
+	Eval(js string)
+	Dispatch(fn func())
+	Resize(width, height int)
+	Terminate()
+}
 
 type WindowController struct {
-	mu     sync.Mutex
 	title  string
-	view   webview.WebView
+	view   NativeWindow
 	hub    *Hub
 	done   chan struct{}
 	closed bool
@@ -23,14 +26,10 @@ func NewWindowController(title, _ string) *WindowController {
 	}
 }
 
-func (w *WindowController) Attach(view webview.WebView, hub *Hub) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (w *WindowController) Attach(view NativeWindow, hub *Hub) error {
 	w.view = view
 	w.hub = hub
 	w.view.SetTitle(w.title)
-	w.view.SetSize(1200, 900, webview.HintNone)
 	w.view.SetHtml(renderAppHTML(hub.Snapshot()))
 
 	sub := hub.Subscribe()
@@ -61,27 +60,38 @@ func (w *WindowController) Done() <-chan struct{} {
 }
 
 func (w *WindowController) Show() error {
+	if w.view == nil {
+		return nil
+	}
+	w.view.Dispatch(func() {
+		w.view.SetTitle(w.title)
+	})
 	return nil
 }
 
 func (w *WindowController) Hide() error {
-	return nil
+	return w.Stop()
 }
 
 func (w *WindowController) SetVisible(visible bool) error {
-	_ = visible
-	return nil
+	if visible {
+		return w.Show()
+	}
+	return w.Hide()
 }
 
 func (w *WindowController) Resize(payload map[string]any) error {
-	_ = payload
+	if w.view == nil {
+		return nil
+	}
+	width, height := estimatePixelSize(payload)
+	w.view.Dispatch(func() {
+		w.view.Resize(width, height)
+	})
 	return nil
 }
 
 func (w *WindowController) Stop() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if !w.closed {
 		close(w.done)
 		w.closed = true

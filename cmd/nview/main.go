@@ -120,6 +120,21 @@ func renderMarkdown(source string) template.HTML {
 	return template.HTML(buf.String())
 }
 
+func renderAppHTML(state ViewState) string {
+	data, _ := json.Marshal(state)
+	var buf bytes.Buffer
+	if err := pageTmpl.Execute(&buf, struct {
+		ViewState
+		StateJSON template.JS
+	}{
+		ViewState: state,
+		StateJSON: template.JS(data),
+	}); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
 	flag.Parse()
@@ -417,6 +432,7 @@ const pageHTML = `<!doctype html>
       infoEl.textContent = (state.filetype || 'unknown filetype') + ' · ' + cursor;
       previewEl.innerHTML = state.html || '<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>';
     };
+    window.__applyState({{.StateJSON}});
   </script>
 </body>
 </html>`

@@ -2,10 +2,36 @@
 
 package main
 
-import "strings"
+import webview2 "github.com/jchv/go-webview2"
 
-func applyNativeWindowVisible(_ bool) error              { return nil }
-func applyNativeWindowSize(payload map[string]any) error { _ = payload; return nil }
-func nativeWindowTitle(title string) string              { return strings.TrimSpace(title) }
-func nativeWindowHandle() uintptr                        { return 0 }
-func nativeWindowReady() bool                            { return true }
+type nativeWindow struct {
+	view webview2.WebView
+}
+
+func (n nativeWindow) SetTitle(title string) {
+	n.view.SetTitle(title)
+}
+
+func (n nativeWindow) SetHtml(html string) {
+	n.view.SetHtml(html)
+}
+
+func (n nativeWindow) Eval(js string) {
+	n.view.Eval(js)
+}
+
+func (n nativeWindow) Dispatch(fn func()) {
+	n.view.Dispatch(fn)
+}
+
+func (n nativeWindow) Resize(width, height int) {
+	n.view.SetSize(width, height, webview2.HintNone)
+}
+
+func (n nativeWindow) Terminate() {
+	n.view.Terminate()
+}
+
+func attachNativeWindow(window *WindowController, w webview2.WebView, hub *Hub) error {
+	return window.Attach(nativeWindow{view: w}, hub)
+}
