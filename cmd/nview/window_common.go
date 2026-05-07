@@ -75,6 +75,9 @@ func (w *WindowController) Show() error {
 	w.state.Visible = true
 	w.state.Focused = true
 	w.view.Dispatch(func() {
+		if w.state.Bounds.Valid() {
+			w.view.SetBounds(w.state.Bounds)
+		}
 		w.view.Show()
 		w.view.SetTopMost(true)
 		w.view.Focus()

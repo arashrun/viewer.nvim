@@ -206,7 +206,6 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 					"ok": true,
 				},
 			})
-			_ = window.Hide()
 		case "preview":
 			updatePreview(hub, msg)
 		case "viewport":
