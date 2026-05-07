@@ -15,6 +15,8 @@ var (
 	procSetFocus        = user32.NewProc("SetFocus")
 	procSetWindowPos    = user32.NewProc("SetWindowPos")
 	procGetWindowRect   = user32.NewProc("GetWindowRect")
+	procGetWindowLong   = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLong   = user32.NewProc("SetWindowLongPtrW")
 )
 
 const (
@@ -27,6 +29,9 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	swpFrameChanged = 0x0020
+	gwlExStyle      = -20
+	wsExToolWindow  = 0x00000080
+	wsExAppWindow   = 0x00040000
 )
 
 type nativeWindow struct {
@@ -66,6 +71,26 @@ func (n nativeWindow) SetBounds(bounds WindowBounds) {
 		uintptr(bounds.Width),
 		uintptr(bounds.Height),
 		swpNoActivate|swpFrameChanged,
+	)
+}
+
+func (n nativeWindow) setToolWindowStyle() {
+	hwnd := uintptr(n.view.Window())
+	if hwnd == 0 {
+		return
+	}
+	style := getWindowLong(hwnd, gwlExStyle)
+	style &^= wsExAppWindow
+	style |= wsExToolWindow
+	setWindowLong(hwnd, gwlExStyle, style)
+	_, _, _ = procSetWindowPos.Call(
+		hwnd,
+		hwndNoTopMost,
+		0,
+		0,
+		0,
+		0,
+		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged,
 	)
 }
 
@@ -129,5 +154,17 @@ func (n nativeWindow) Terminate() {
 }
 
 func attachNativeWindow(window *WindowController, w webview2.WebView, hub *Hub) error {
-	return window.Attach(nativeWindow{view: w}, hub)
+	n := nativeWindow{view: w}
+	n.setToolWindowStyle()
+	return window.Attach(n, hub)
+}
+
+func getWindowLong(hwnd uintptr, index int) uintptr {
+	ret, _, _ := procGetWindowLong.Call(hwnd, uintptr(index))
+	return ret
+}
+
+func setWindowLong(hwnd uintptr, index int, value uintptr) uintptr {
+	ret, _, _ := procSetWindowLong.Call(hwnd, uintptr(index), value)
+	return ret
 }
