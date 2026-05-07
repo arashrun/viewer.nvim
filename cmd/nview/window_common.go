@@ -8,7 +8,6 @@ type NativeWindow interface {
 	SetHtml(html string)
 	Eval(js string)
 	Dispatch(fn func())
-	Resize(width, height int)
 	SetBounds(bounds WindowBounds)
 	SetTopMost(topMost bool)
 	Show()
@@ -102,6 +101,7 @@ func (w *WindowController) Hide() error {
 	if w.view == nil {
 		return nil
 	}
+	w.RememberBounds()
 	w.view.Dispatch(func() {
 		w.view.Hide()
 	})
@@ -113,17 +113,6 @@ func (w *WindowController) SetVisible(visible bool) error {
 		return w.Show()
 	}
 	return w.Hide()
-}
-
-func (w *WindowController) Resize(payload map[string]any) error {
-	if w.view == nil {
-		return nil
-	}
-	width, height := estimatePixelSize(payload)
-	w.view.Dispatch(func() {
-		w.view.Resize(width, height)
-	})
-	return nil
 }
 
 func (w *WindowController) RememberBounds() {
@@ -152,9 +141,6 @@ func (w *WindowController) applyState() {
 		return
 	}
 	w.view.Hide()
-	if w.state.Focused {
-		w.view.Focus()
-	}
 }
 
 func (w *WindowController) Stop() error {

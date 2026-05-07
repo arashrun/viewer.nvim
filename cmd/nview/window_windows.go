@@ -55,10 +55,6 @@ func (n nativeWindow) Dispatch(fn func()) {
 	n.view.Dispatch(fn)
 }
 
-func (n nativeWindow) Resize(width, height int) {
-	n.view.SetSize(width, height, webview2.HintNone)
-}
-
 func (n nativeWindow) SetBounds(bounds WindowBounds) {
 	hwnd := uintptr(n.view.Window())
 	if hwnd == 0 {
