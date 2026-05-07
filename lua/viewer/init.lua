@@ -13,6 +13,7 @@ local state = {
   viewport_timer = nil,
   reconnect_timer = nil,
   reconnecting = false,
+  spawning = false,
 }
 
 local function is_markdown_buffer(bufnr)
@@ -35,6 +36,56 @@ local function current_endpoint()
   end
 
   return local_ep, remote
+end
+
+local function resolve_nview_command()
+  local user_cmd = state.config.nview_cmd
+  if type(user_cmd) == "table" and #user_cmd > 0 then
+    return user_cmd
+  end
+
+  local source = debug.getinfo(1, "S").source
+  if type(source) == "string" and source:sub(1, 1) == "@" then
+    local init_path = source:sub(2)
+    local root = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(init_path)))
+    local exe_name = vim.fn.has("win32") == 1 and "nview.exe" or "nview"
+    local candidate = vim.fs.joinpath(root, "bin", exe_name)
+    if vim.fn.executable(candidate) == 1 then
+      return { candidate }
+    end
+  end
+
+  if vim.fn.executable("nview") == 1 then
+    return { "nview" }
+  end
+
+  return nil
+end
+
+local function spawn_nview(callback)
+  if state.spawning then
+    callback(false, "nview is starting")
+    return
+  end
+
+  local cmd = resolve_nview_command()
+  if not cmd then
+    callback(false, "nview executable not found")
+    return
+  end
+
+  state.spawning = true
+  local job_id = vim.fn.jobstart(cmd, { detach = true })
+  if job_id <= 0 then
+    state.spawning = false
+    callback(false, "failed to start nview")
+    return
+  end
+
+  vim.defer_fn(function()
+    state.spawning = false
+    callback(true)
+  end, 500)
 end
 
 local function stop_preview_timer()
@@ -226,12 +277,21 @@ end
 
 local function pick_endpoint(callback)
   local first, second = current_endpoint()
-  local endpoints = { first, second }
+  local endpoints = {
+    { endpoint = first, spawnable = vim.env.SSH_CONNECTION == nil and vim.env.SSH_CLIENT == nil and vim.env.SSH_TTY == nil },
+    { endpoint = second, spawnable = false },
+  }
 
-  local function try_next(index)
-    local endpoint = endpoints[index]
-    if not endpoint then
+  local function try_next(index, spawned)
+    local item = endpoints[index]
+    if not item then
       callback(false, "nview not found")
+      return
+    end
+
+    local endpoint = item.endpoint
+    if not endpoint then
+      try_next(index + 1, false)
       return
     end
 
@@ -243,13 +303,29 @@ local function pick_endpoint(callback)
         return
       end
 
+      if item.spawnable and not spawned then
+        spawn_nview(function(spawn_ok, spawn_err)
+          if not spawn_ok then
+            vim.schedule(function()
+              try_next(index + 1, false)
+            end)
+            return
+          end
+
+          vim.defer_fn(function()
+            try_next(index, true)
+          end, 1000)
+        end)
+        return
+      end
+
       vim.schedule(function()
-        try_next(index + 1)
+        try_next(index + 1, false)
       end)
     end)
   end
 
-  try_next(1)
+  try_next(1, false)
 end
 
 local function start_preview(bufnr)
