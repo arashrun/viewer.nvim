@@ -317,12 +317,15 @@ const pageHTML = `<!doctype html>
       --accent: #0f766e;
       --border: #ded7ca;
     }
-    body {
+    html, body {
+      width: 100%;
+      height: 100%;
       margin: 0;
-      height: 100vh;
+      overflow: hidden;
+    }
+    body {
       display: flex;
       flex-direction: column;
-      overflow: hidden;
       background: radial-gradient(circle at top, #fff 0%, var(--bg) 55%, #ece3d4 100%);
       color: var(--text);
       font: 15px/1.6 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -359,11 +362,13 @@ const pageHTML = `<!doctype html>
       flex-direction: column;
       gap: 12px;
       padding: 12px 16px 16px;
-      max-width: 1100px;
+      width: min(1100px, 100%);
       flex: 1;
       min-height: 0;
+      min-width: 0;
       margin: 0 auto;
       box-sizing: border-box;
+      overflow: hidden;
     }
     .card {
       background: var(--panel);
@@ -374,6 +379,8 @@ const pageHTML = `<!doctype html>
       display: flex;
       flex-direction: column;
       min-height: 0;
+      min-width: 0;
+      max-width: 100%;
     }
     .card h2 {
       margin: 0;
@@ -395,6 +402,7 @@ const pageHTML = `<!doctype html>
       overflow: auto;
       scroll-behavior: auto;
       min-height: 0;
+      min-width: 0;
     }
     .status {
       display: inline-flex;
@@ -413,6 +421,7 @@ const pageHTML = `<!doctype html>
     article {
       max-width: 82ch;
       margin: 0 auto;
+      min-width: 0;
     }
     article > *:first-child {
       margin-top: 0;
