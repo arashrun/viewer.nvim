@@ -295,6 +295,7 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController) {
 			updatePreview(hub, msg)
 		case "viewport":
 			updateViewport(hub, msg)
+			_ = window.Show()
 		case "focus":
 			updateFocus(hub, msg)
 			if focused, ok := msg.Payload["focused"].(bool); ok {
