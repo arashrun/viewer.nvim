@@ -21,6 +21,7 @@ type WindowController struct {
 	title  string
 	view   NativeWindow
 	hub    *Hub
+	saveState func(WindowState) error
 	state  WindowState
 	done   chan struct{}
 	closed bool
@@ -32,6 +33,10 @@ func NewWindowController(title, _ string) *WindowController {
 		state: defaultWindowState(),
 		done:  make(chan struct{}),
 	}
+}
+
+func (w *WindowController) SetStateSaver(save func(WindowState) error) {
+	w.saveState = save
 }
 
 func (w *WindowController) Attach(view NativeWindow, hub *Hub) error {
@@ -105,6 +110,7 @@ func (w *WindowController) Hide() error {
 	w.view.Dispatch(func() {
 		w.view.Hide()
 	})
+	w.persistState()
 	return nil
 }
 
@@ -145,6 +151,7 @@ func (w *WindowController) applyState() {
 
 func (w *WindowController) Stop() error {
 	w.RememberBounds()
+	w.persistState()
 	if !w.closed {
 		close(w.done)
 		w.closed = true
@@ -155,4 +162,11 @@ func (w *WindowController) Stop() error {
 		})
 	}
 	return nil
+}
+
+func (w *WindowController) persistState() {
+	if w.saveState == nil {
+		return
+	}
+	_ = w.saveState(w.state)
 }

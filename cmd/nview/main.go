@@ -142,6 +142,9 @@ func main() {
 
 	hub := NewHub()
 	window := NewWindowController("nview", "nview")
+	window.SetStateSaver(func(state WindowState) error {
+		return saveWindowState(*statePath, state)
+	})
 	if state, err := loadWindowState(*statePath); err == nil {
 		window.state = mergeWindowState(defaultWindowState(), state)
 	}
