@@ -27,15 +27,34 @@ local function notify(msg, level)
   end)
 end
 
-local function current_endpoint()
+local function endpoint_equals(a, b)
+  return a
+    and b
+    and a.host == b.host
+    and a.port == b.port
+end
+
+local function has_custom_remote_endpoint()
+  return not endpoint_equals(state.config.remote_endpoint, config.defaults.remote_endpoint)
+end
+
+local function endpoint_order()
   local remote = state.config.remote_endpoint
   local local_ep = state.config.local_endpoint
+  local is_ssh = vim.env.SSH_CONNECTION or vim.env.SSH_CLIENT or vim.env.SSH_TTY
+  local custom_remote = has_custom_remote_endpoint()
 
-  if vim.env.SSH_CONNECTION or vim.env.SSH_CLIENT or vim.env.SSH_TTY then
-    return remote, local_ep
+  if custom_remote or is_ssh then
+    return {
+      { endpoint = remote, spawnable = false },
+      { endpoint = local_ep, spawnable = false },
+    }
   end
 
-  return local_ep, remote
+  return {
+    { endpoint = local_ep, spawnable = true },
+    { endpoint = remote, spawnable = false },
+  }
 end
 
 local function resolve_nview_command()
@@ -278,11 +297,7 @@ attach_autocmds = function()
 end
 
 local function pick_endpoint(callback)
-  local first, second = current_endpoint()
-  local endpoints = {
-    { endpoint = first, spawnable = vim.env.SSH_CONNECTION == nil and vim.env.SSH_CLIENT == nil and vim.env.SSH_TTY == nil },
-    { endpoint = second, spawnable = false },
-  }
+  local endpoints = endpoint_order()
 
   local function try_next(index, spawned)
     local item = endpoints[index]
