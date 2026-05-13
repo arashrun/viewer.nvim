@@ -47,6 +47,13 @@ function M.preview(payload)
   }
 end
 
+function M.session(payload)
+  return {
+    type = "session",
+    payload = payload or {},
+  }
+end
+
 function M.focus(state)
   return {
     type = "focus",

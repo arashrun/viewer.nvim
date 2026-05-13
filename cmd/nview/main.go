@@ -9,13 +9,11 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/renderer/html"
 )
 
 type Message struct {
@@ -24,6 +22,7 @@ type Message struct {
 }
 
 type clientState struct {
+	SessionID string
 	Path      string
 	FileType  string
 	LineCount int
@@ -35,7 +34,18 @@ type clientState struct {
 	UpdatedAt time.Time
 }
 
+func sessionIDFromPayload(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	if v, ok := payload["session_id"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 type ViewState struct {
+	SessionID string         `json:"sessionId"`
 	Connected bool           `json:"connected"`
 	FileType  string         `json:"filetype"`
 	Path      string         `json:"path"`
@@ -50,11 +60,11 @@ type ViewState struct {
 }
 
 type Hub struct {
-	mu      sync.Mutex
-	state   ViewState
-	clientsState map[string]*clientState
-	activeClient string
-	clients map[chan struct{}]struct{}
+	mu           sync.Mutex
+	state        ViewState
+	clientsState  map[string]*clientState
+	activeClient  string
+	clients       map[chan struct{}]struct{}
 }
 
 func NewHub() *Hub {
@@ -131,12 +141,14 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.Cursor = client.Cursor
 	h.state.Viewport = client.Viewport
 	h.state.LastType = client.LastType
+	h.state.SessionID = client.SessionID
 	h.state.UpdatedAt = time.Now()
 }
 
 func (h *Hub) upsertClient(sessionID string, update func(*clientState)) {
 	h.mu.Lock()
 	client := h.ensureClientLocked(sessionID)
+	client.SessionID = sessionID
 	update(client)
 	client.UpdatedAt = time.Now()
 	h.setActiveClientLocked(sessionID)
@@ -166,19 +178,13 @@ func (h *Hub) removeClient(sessionID string) {
 		h.state.Cursor = nil
 		h.state.Viewport = nil
 		h.state.LastType = "disconnect"
+		h.state.SessionID = ""
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
 	h.mu.Unlock()
 	h.Broadcast()
 }
-
-var markdownRenderer = goldmark.New(
-	goldmark.WithExtensions(extension.GFM),
-	goldmark.WithRendererOptions(
-		html.WithUnsafe(),
-	),
-)
 
 type DesktopApp struct {
 	hub    *Hub
@@ -191,14 +197,6 @@ func NewDesktopApp(hub *Hub, window *WindowController) *DesktopApp {
 
 func (a *DesktopApp) Run() error {
 	return runNativeApp(a.hub, a.window)
-}
-
-func renderMarkdown(source string) template.HTML {
-	var buf bytes.Buffer
-	if err := markdownRenderer.Convert([]byte(source), &buf); err != nil {
-		return template.HTML("<pre class=\"error\">render failed</pre>")
-	}
-	return template.HTML(buf.String())
 }
 
 func renderAppHTML(state ViewState, headerVisible bool) string {
@@ -221,20 +219,21 @@ func renderAppHTML(state ViewState, headerVisible bool) string {
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
 	statePath := flag.String("state-file", defaultStatePath(), "window state file")
+	autoHideMS := flag.Int("auto-hide-ms", 3000, "auto hide interval in milliseconds")
 	flag.Parse()
 
 	hub := NewHub()
 	window := NewWindowController("nview", "nview")
-	window.SetStateSaver(func(state WindowState) error {
+	window.SetStateSaver(func(state persistedWindowState) error {
 		return saveWindowState(*statePath, state)
 	})
 	if state, err := loadWindowState(*statePath); err == nil {
-		window.state = mergeWindowState(defaultWindowState(), state)
+		window.SetPersistedState(state)
 	}
 
 	var lastMessageAt int64
 	atomic.StoreInt64(&lastMessageAt, time.Now().UnixNano())
-	go monitorWindowInactivity(window, &lastMessageAt)
+	go monitorWindowInactivity(window, &lastMessageAt, time.Duration(*autoHideMS)*time.Millisecond)
 
 	go func() {
 		if err := serveTCP(*listenAddr, hub, window, &lastMessageAt); err != nil {
@@ -250,10 +249,10 @@ func main() {
 		log.Printf("nview desktop error: %v", err)
 		os.Exit(1)
 	}
-	_ = saveWindowState(*statePath, window.state)
+	_ = saveWindowState(*statePath, window.persisted)
 }
 
-func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
+func monitorWindowInactivity(window *WindowController, lastMessageAt *int64, autoHideAfter time.Duration) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -262,7 +261,10 @@ func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
 			atomic.StoreInt64(lastMessageAt, time.Now().UnixNano())
 			continue
 		}
-		if time.Since(time.Unix(0, atomic.LoadInt64(lastMessageAt))) >= 3*time.Second {
+		if autoHideAfter <= 0 {
+			continue
+		}
+		if time.Since(time.Unix(0, atomic.LoadInt64(lastMessageAt))) >= autoHideAfter {
 			if window.state.Visible {
 				_ = window.Hide()
 			}
@@ -303,11 +305,18 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 
 		log.Printf("recv %s", msg.Type)
 		atomic.StoreInt64(lastMessageAt, time.Now().UnixNano())
+		sessionIDPayload := sessionIDFromPayload(msg.Payload)
+		if sessionIDPayload != "" {
+			window.ApplySession(sessionIDPayload)
+		}
 		_ = window.Show()
 		switch msg.Type {
 		case "hello":
 			hub.upsertClient(sessionID, func(client *clientState) {
 				client.LastType = msg.Type
+				if sessionIDPayload != "" {
+					client.SessionID = sessionIDPayload
+				}
 			})
 			_ = encoder.Encode(Message{
 				Type: "ack",
@@ -318,7 +327,14 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 		case "preview":
 			updatePreview(hub, sessionID, msg)
 		case "viewport":
-			updateViewport(hub, sessionID, msg)
+			updateViewport(hub, window, sessionID, msg)
+		case "session":
+			hub.upsertClient(sessionID, func(client *clientState) {
+				if sessionIDPayload != "" {
+					client.SessionID = sessionIDPayload
+				}
+				client.LastType = msg.Type
+			})
 		case "close":
 			hub.upsertClient(sessionID, func(client *clientState) {
 				client.LastType = msg.Type
@@ -330,8 +346,12 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 }
 
 func updatePreview(hub *Hub, sessionID string, msg Message) {
+	sessionIDPayload := sessionIDFromPayload(msg.Payload)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.LastType = msg.Type
+		if sessionIDPayload != "" {
+			client.SessionID = sessionIDPayload
+		}
 		if v, ok := msg.Payload["path"].(string); ok {
 			client.Path = v
 		}
@@ -348,14 +368,22 @@ func updatePreview(hub *Hub, sessionID string, msg Message) {
 			md := joinLines(lines)
 			client.Markdown = md
 			client.LineCount = len(lines)
-			client.HTML = renderMarkdown(md)
+			baseDir := ""
+			if client.Path != "" {
+				baseDir = filepath.Dir(client.Path)
+			}
+			client.HTML = renderMarkdownHTML(md, baseDir)
 		}
 	})
 }
 
-func updateViewport(hub *Hub, sessionID string, msg Message) {
+func updateViewport(hub *Hub, window *WindowController, sessionID string, msg Message) {
+	sessionIDPayload := sessionIDFromPayload(msg.Payload)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.LastType = msg.Type
+		if sessionIDPayload != "" {
+			client.SessionID = sessionIDPayload
+		}
 		client.Viewport = msg.Payload
 		if cursor, ok := msg.Payload["cursor"].(map[string]any); ok {
 			client.Cursor = cursor
@@ -506,6 +534,14 @@ const pageHTML = `<!doctype html>
     article img {
       max-width: 100%;
     }
+    [data-active-line="true"] {
+      background: rgba(15, 118, 110, 0.12);
+      box-shadow: inset 3px 0 0 rgba(15, 118, 110, 0.8);
+      border-radius: 6px;
+    }
+    [data-active-line="true"] code {
+      background: transparent;
+    }
     pre {
       padding: 16px;
       background: #171717;
@@ -578,6 +614,32 @@ const pageHTML = `<!doctype html>
       contentEl.scrollTop = maxScroll * progress;
     }
 
+    function clearActiveLine() {
+      const nodes = previewEl.querySelectorAll('[data-active-line="true"]');
+      nodes.forEach(function(node) {
+        node.removeAttribute('data-active-line');
+      });
+    }
+
+    function highlightActiveLine(state) {
+      if (!previewEl) {
+        return;
+      }
+      clearActiveLine();
+      const row = state.cursor && typeof state.cursor.row === 'number' ? state.cursor.row : 0;
+      if (row <= 0) {
+        return;
+      }
+      const nodes = previewEl.querySelectorAll('[data-line-start]');
+      nodes.forEach(function(node) {
+        const start = Number(node.getAttribute('data-line-start') || '0');
+        const end = Number(node.getAttribute('data-line-end') || '0');
+        if (start <= row && row <= end) {
+          node.setAttribute('data-active-line', 'true');
+        }
+      });
+    }
+
     function applyHeaderVisible(visible) {
       headerVisible = !!visible;
       document.body.classList.toggle('header-hidden', !headerVisible);
@@ -609,6 +671,7 @@ const pageHTML = `<!doctype html>
       if (typeof state.headerVisible === 'boolean') {
         applyHeaderVisible(state.headerVisible);
       }
+      highlightActiveLine(state);
       scrollPreview(state);
     };
     applyHeaderVisible(headerVisible);

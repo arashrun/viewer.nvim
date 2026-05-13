@@ -19,13 +19,15 @@ type NativeWindow interface {
 }
 
 type WindowController struct {
-	title  string
-	view   NativeWindow
-	hub    *Hub
-	saveState func(WindowState) error
-	state  WindowState
-	done   chan struct{}
-	closed bool
+	title         string
+	view          NativeWindow
+	hub           *Hub
+	saveState     func(persistedWindowState) error
+	state         WindowState
+	persisted     persistedWindowState
+	activeSession string
+	done          chan struct{}
+	closed        bool
 }
 
 func NewWindowController(title, _ string) *WindowController {
@@ -36,8 +38,32 @@ func NewWindowController(title, _ string) *WindowController {
 	}
 }
 
-func (w *WindowController) SetStateSaver(save func(WindowState) error) {
+func (w *WindowController) SetPersistedState(state persistedWindowState) {
+	w.persisted = state
+	if !state.Default.Valid() {
+		w.persisted.Default = defaultWindowState()
+	}
+	if w.persisted.Sessions == nil {
+		w.persisted.Sessions = make(map[string]WindowState)
+	}
+	w.state = mergeWindowState(defaultWindowState(), w.persisted.Default)
+}
+
+func (w *WindowController) SetStateSaver(save func(persistedWindowState) error) {
 	w.saveState = save
+}
+
+func (w *WindowController) ApplySession(sessionID string) {
+	w.activeSession = sessionID
+	if sessionID == "" {
+		w.state = mergeWindowState(defaultWindowState(), w.persisted.Default)
+		return
+	}
+	if sessionState, ok := w.persisted.Sessions[sessionID]; ok && sessionState.Valid() {
+		w.state = mergeWindowState(defaultWindowState(), sessionState)
+		return
+	}
+	w.state = mergeWindowState(defaultWindowState(), w.persisted.Default)
 }
 
 func (w *WindowController) ToggleHeaderVisible() bool {
@@ -197,7 +223,11 @@ func (w *WindowController) persistState() {
 	if w.saveState == nil {
 		return
 	}
-	_ = w.saveState(w.state)
+	w.persisted.Default = w.state
+	if w.activeSession != "" {
+		w.persisted.Sessions[w.activeSession] = w.state
+	}
+	_ = w.saveState(w.persisted)
 }
 
 func (w *WindowController) OnWindowBoundsChanged() {

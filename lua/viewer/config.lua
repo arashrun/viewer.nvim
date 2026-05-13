@@ -17,6 +17,7 @@ M.defaults = {
   },
   probe_timeout_ms = 1000,
   debounce_ms = 120,
+  auto_hide_ms = 3000,
   auto_start = false,
   nview_cmd = nil,
 }

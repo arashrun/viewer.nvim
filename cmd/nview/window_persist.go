@@ -6,6 +6,11 @@ import (
 	"path/filepath"
 )
 
+type persistedWindowState struct {
+	Default  WindowState            `json:"default"`
+	Sessions map[string]WindowState `json:"sessions,omitempty"`
+}
+
 func defaultStatePath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
@@ -18,34 +23,35 @@ func defaultStatePath() string {
 	return filepath.Join(dir, "viewer.nvim", "nview-window.json")
 }
 
-func loadWindowState(path string) (WindowState, error) {
+func loadWindowState(path string) (persistedWindowState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return WindowState{}, err
+		return persistedWindowState{}, err
 	}
-	var raw struct {
-		Bounds        WindowBounds `json:"bounds"`
-		TopMost       bool         `json:"topMost"`
-		Visible       bool         `json:"visible"`
-		Focused       bool         `json:"focused"`
-		HeaderVisible *bool        `json:"headerVisible"`
+	var raw persistedWindowState
+	if err := json.Unmarshal(data, &raw); err == nil {
+		if raw.Sessions == nil {
+			raw.Sessions = make(map[string]WindowState)
+		}
+		if raw.Default.Valid() {
+			raw.Default = mergeWindowState(defaultWindowState(), raw.Default)
+		} else {
+			raw.Default = defaultWindowState()
+		}
+		return raw, nil
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return WindowState{}, err
+
+	var legacy WindowState
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return persistedWindowState{}, err
 	}
-	state := WindowState{
-		Bounds:  raw.Bounds,
-		TopMost: raw.TopMost,
-		Visible: raw.Visible,
-		Focused: raw.Focused,
-	}
-	if raw.HeaderVisible != nil {
-		state.HeaderVisible = *raw.HeaderVisible
-	}
-	return state, nil
+	return persistedWindowState{
+		Default:  mergeWindowState(defaultWindowState(), legacy),
+		Sessions: map[string]WindowState{},
+	}, nil
 }
 
-func saveWindowState(path string, state WindowState) error {
+func saveWindowState(path string, state persistedWindowState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

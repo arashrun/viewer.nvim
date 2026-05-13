@@ -9,6 +9,7 @@ local state = {
   transport = nil,
   active = false,
   bufnr = nil,
+  session_id = nil,
   preview_timer = nil,
   viewport_timer = nil,
   reconnect_timer = nil,
@@ -16,9 +17,22 @@ local state = {
   spawning = false,
 }
 
+local reconnect_delay_ms = 1000
+
 local function is_markdown_buffer(bufnr)
   local ft = vim.bo[bufnr].filetype
   return state.config.enabled_filetypes[ft] == true
+end
+
+local function new_session_id()
+  return string.format("%d:%d:%d", vim.loop.hrtime(), vim.fn.getpid(), math.random(100000, 999999))
+end
+
+local function ensure_session_id()
+  if not state.session_id then
+    state.session_id = new_session_id()
+  end
+  return state.session_id
 end
 
 local function notify(msg, level)
@@ -151,6 +165,7 @@ local function connect_session(bufnr, transport)
   state.transport = transport
   state.active = true
   state.reconnecting = false
+  ensure_session_id()
   state.transport:set_on_close(function()
     if not state.active then
       return
@@ -162,7 +177,7 @@ local function connect_session(bufnr, transport)
       notify("nview disconnected, retrying...", vim.log.levels.WARN)
       stop_reconnect_timer()
       state.reconnect_timer = vim.loop.new_timer()
-      state.reconnect_timer:start(1000, 1000, vim.schedule_wrap(function()
+      state.reconnect_timer:start(reconnect_delay_ms, reconnect_delay_ms, vim.schedule_wrap(function()
         if state.active or not state.reconnecting then
           return
         end
@@ -174,12 +189,17 @@ local function connect_session(bufnr, transport)
   state.transport:send(protocol.hello({
     plugin = "viewer.nvim",
     version = "0.1.0",
+    session_id = ensure_session_id(),
+  }))
+  state.transport:send(protocol.session({
+    session_id = ensure_session_id(),
   }))
   state.transport:send(protocol.preview({
     bufnr = bufnr,
     path = vim.api.nvim_buf_get_name(bufnr),
     filetype = vim.bo[bufnr].filetype,
     lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false),
+    session_id = ensure_session_id(),
   }))
   attach_autocmds()
   schedule_preview_sync()
@@ -216,6 +236,7 @@ schedule_preview_sync = function()
       line_count = #lines,
       cursor = { row = cursor[1], col = cursor[2] },
       viewport = { width = width, height = height },
+      session_id = ensure_session_id(),
     }
 
     state.transport:send(protocol.preview(payload))
@@ -249,6 +270,7 @@ schedule_viewport_sync = function()
       filetype = vim.bo[bufnr].filetype,
       cursor = { row = cursor[1], col = cursor[2] },
       viewport = { width = width, height = height },
+      session_id = ensure_session_id(),
     }
 
     state.transport:send(protocol.viewport(payload))
@@ -365,6 +387,7 @@ end
 
 function M.setup(user_config)
   state.config = config.merge(user_config)
+  math.randomseed(vim.loop.hrtime() % 2147483647)
 
   if state.config.auto_start then
     vim.schedule(function()
