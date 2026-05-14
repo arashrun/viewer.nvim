@@ -604,10 +604,10 @@ const pageHTML = `<!doctype html>
       max-width: 100%;
     }
     [data-active-line="true"] {
-      background: rgba(15, 118, 110, 0.16);
+      background: rgba(253, 224, 71, 0.24);
       box-shadow:
-        inset 4px 0 0 rgba(15, 118, 110, 0.95),
-        0 0 0 1px rgba(15, 118, 110, 0.18);
+        inset 4px 0 0 rgba(202, 138, 4, 0.78),
+        0 0 0 1px rgba(202, 138, 4, 0.14);
       border-radius: 8px;
       position: relative;
       z-index: 0;
