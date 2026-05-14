@@ -161,7 +161,7 @@ func (h *Hub) upsertClient(sessionID string, update func(*clientState)) {
 	h.Broadcast()
 }
 
-func (h *Hub) removeClient(sessionID string) {
+func (h *Hub) removeClient(sessionID string) bool {
 	h.mu.Lock()
 	delete(h.clientsState, sessionID)
 	if h.activeClient == sessionID {
@@ -186,8 +186,10 @@ func (h *Hub) removeClient(sessionID string) {
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
+	empty := len(h.clientsState) == 0
 	h.mu.Unlock()
 	h.Broadcast()
+	return empty
 }
 
 type DesktopApp struct {
@@ -356,10 +358,15 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 			hub.upsertClient(sessionID, func(client *clientState) {
 				client.LastType = msg.Type
 			})
-			hub.removeClient(sessionID)
+			if hub.removeClient(sessionID) {
+				_ = window.Stop()
+				return
+			}
 		}
 	}
-	hub.removeClient(sessionID)
+	if hub.removeClient(sessionID) {
+		_ = window.Stop()
+	}
 }
 
 func updatePreview(hub *Hub, sessionID string, msg Message) {
