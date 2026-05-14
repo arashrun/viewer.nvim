@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -36,8 +37,8 @@ func (t *sourceLineTransformer) Transform(node *ast.Document, reader text.Reader
 		case ast.KindParagraph, ast.KindHeading, ast.KindBlockquote, ast.KindList, ast.KindListItem, ast.KindCodeBlock, ast.KindFencedCodeBlock, ast.KindHTMLBlock, ast.KindTextBlock, ast.KindThematicBreak:
 			start, end := nodeLineRange(n, source)
 			if start > 0 {
-				n.SetAttributeString("data-line-start", start)
-				n.SetAttributeString("data-line-end", end)
+				n.SetAttributeString("data-line-start", strconv.Itoa(start))
+				n.SetAttributeString("data-line-end", strconv.Itoa(end))
 			}
 		}
 
