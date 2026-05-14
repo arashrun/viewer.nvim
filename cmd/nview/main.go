@@ -584,6 +584,8 @@ const pageHTML = `<!doctype html>
       scroll-behavior: auto;
       min-height: 0;
       min-width: 0;
+      position: relative;
+      isolation: isolate;
     }
     .status {
       display: inline-flex;
@@ -603,6 +605,8 @@ const pageHTML = `<!doctype html>
       max-width: 82ch;
       margin: 0 auto;
       min-width: 0;
+      position: relative;
+      z-index: 1;
     }
     article > *:first-child {
       margin-top: 0;
@@ -610,17 +614,18 @@ const pageHTML = `<!doctype html>
     article img {
       max-width: 100%;
     }
-    [data-active-line="true"] {
-      background: rgba(253, 224, 71, 0.24);
+    .cursorline-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-radius: 8px;
+      background: rgba(253, 224, 71, 0.22);
       box-shadow:
         inset 4px 0 0 rgba(202, 138, 4, 0.78),
         0 0 0 1px rgba(202, 138, 4, 0.14);
-      border-radius: 8px;
-      position: relative;
+      pointer-events: none;
       z-index: 0;
-    }
-    [data-active-line="true"] code {
-      background: transparent;
+      display: none;
     }
     pre {
       padding: 16px;
@@ -680,6 +685,11 @@ const pageHTML = `<!doctype html>
     const previewEl = document.getElementById('preview');
     const contentEl = document.querySelector('.content');
     const previewHeadingEl = document.querySelector('.card h2');
+    const cursorlineEl = document.createElement('div');
+    cursorlineEl.className = 'cursorline-overlay';
+    if (contentEl) {
+      contentEl.appendChild(cursorlineEl);
+    }
     let headerVisible = {{if .HeaderVisible}}true{{else}}false{{end}};
 
     function scrollPreview(state) {
@@ -694,30 +704,58 @@ const pageHTML = `<!doctype html>
       contentEl.scrollTop = maxScroll * progress;
     }
 
-    function clearActiveLine() {
-      const nodes = previewEl.querySelectorAll('[data-active-line="true"]');
-      nodes.forEach(function(node) {
-        node.removeAttribute('data-active-line');
-      });
-    }
-
-    function highlightActiveLine(state) {
-      if (!previewEl) {
+    function hideCursorline() {
+      if (!cursorlineEl) {
         return;
       }
-      clearActiveLine();
+      cursorlineEl.style.display = 'none';
+    }
+
+    function positionCursorline(state) {
+      if (!previewEl || !contentEl || !cursorlineEl) {
+        return;
+      }
       const row = state.cursor && typeof state.cursor.row === 'number' ? state.cursor.row : 0;
       if (row <= 0) {
+        hideCursorline();
         return;
       }
       const nodes = previewEl.querySelectorAll('[data-line-start]');
+      let chosen = null;
       nodes.forEach(function(node) {
         const start = Number(node.getAttribute('data-line-start') || '0');
         const end = Number(node.getAttribute('data-line-end') || '0');
         if (start <= row && row <= end) {
-          node.setAttribute('data-active-line', 'true');
+          if (!chosen) {
+            chosen = node;
+            return;
+          }
+          const chosenStart = Number(chosen.getAttribute('data-line-start') || '0');
+          const chosenEnd = Number(chosen.getAttribute('data-line-end') || '0');
+          const chosenSpan = Math.max(1, chosenEnd - chosenStart + 1);
+          const span = Math.max(1, end - start + 1);
+          if (span < chosenSpan) {
+            chosen = node;
+          }
         }
       });
+      if (!chosen) {
+        hideCursorline();
+        return;
+      }
+
+      const start = Number(chosen.getAttribute('data-line-start') || '0');
+      const end = Number(chosen.getAttribute('data-line-end') || '0');
+      const blockRect = chosen.getBoundingClientRect();
+      const contentRect = contentEl.getBoundingClientRect();
+      const lineCount = Math.max(1, end - start + 1);
+      const lineHeight = Math.max(1, blockRect.height / lineCount);
+      const top = blockRect.top - contentRect.top + contentEl.scrollTop + Math.max(0, row - start) * lineHeight;
+      const height = Math.max(16, Math.min(lineHeight, blockRect.height));
+
+      cursorlineEl.style.top = top + 'px';
+      cursorlineEl.style.height = height + 'px';
+      cursorlineEl.style.display = 'block';
     }
 
     function applyHeaderVisible(visible) {
@@ -751,7 +789,7 @@ const pageHTML = `<!doctype html>
       if (typeof state.headerVisible === 'boolean') {
         applyHeaderVisible(state.headerVisible);
       }
-      highlightActiveLine(state);
+      positionCursorline(state);
       scrollPreview(state);
     };
     applyHeaderVisible(headerVisible);
