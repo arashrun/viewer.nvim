@@ -54,9 +54,24 @@ func (n nativeWindow) Terminate() {
 	n.view.Terminate()
 }
 
-func attachNativeWindow(window *WindowController, w webview.WebView, hub *Hub) error {
+func attachNativeWindow(window *WindowController, w webview.WebView, hub *Hub, docs *DocsService) error {
 	_ = w.Bind("toggleHeaderVisible", func() bool {
 		return window.ToggleHeaderVisible()
+	})
+	_ = w.Bind("docsQuery", func(query string) {
+		if docs != nil {
+			docs.Query(hub.clientKeyForSessionID(window.activeSession), query)
+		}
+	})
+	_ = w.Bind("docsOpen", func(id string) {
+		if docs != nil {
+			docs.Open(hub.clientKeyForSessionID(window.activeSession), id)
+		}
+	})
+	_ = w.Bind("docsBack", func() {
+		if docs != nil {
+			docs.Back(hub.clientKeyForSessionID(window.activeSession))
+		}
 	})
 	return window.Attach(nativeWindow{view: w}, hub)
 }

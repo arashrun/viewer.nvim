@@ -19,16 +19,16 @@ type NativeWindow interface {
 }
 
 type WindowController struct {
-	title         string
-	view          NativeWindow
-	hub           *Hub
-	saveState     func(persistedWindowState) error
-	state         WindowState
-	persisted     persistedWindowState
-	activeSession string
+	title          string
+	view           NativeWindow
+	hub            *Hub
+	saveState      func(persistedWindowState) error
+	state          WindowState
+	persisted      persistedWindowState
+	activeSession  string
 	activeInterval time.Duration
-	done          chan struct{}
-	closed        bool
+	done           chan struct{}
+	closed         bool
 }
 
 func NewWindowController(title, _ string) *WindowController {

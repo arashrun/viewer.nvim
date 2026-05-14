@@ -10,14 +10,14 @@ import (
 )
 
 var (
-	user32              = syscall.NewLazyDLL("user32.dll")
-	procShowWindow      = user32.NewProc("ShowWindow")
-	procSetFocus        = user32.NewProc("SetFocus")
-	procSetWindowPos    = user32.NewProc("SetWindowPos")
-	procGetWindowRect   = user32.NewProc("GetWindowRect")
+	user32                  = syscall.NewLazyDLL("user32.dll")
+	procShowWindow          = user32.NewProc("ShowWindow")
+	procSetFocus            = user32.NewProc("SetFocus")
+	procSetWindowPos        = user32.NewProc("SetWindowPos")
+	procGetWindowRect       = user32.NewProc("GetWindowRect")
 	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	procGetWindowLong   = user32.NewProc("GetWindowLongPtrW")
-	procSetWindowLong   = user32.NewProc("SetWindowLongPtrW")
+	procGetWindowLong       = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLong       = user32.NewProc("SetWindowLongPtrW")
 )
 
 const (
@@ -161,11 +161,26 @@ func (n nativeWindow) Terminate() {
 	n.view.Terminate()
 }
 
-func attachNativeWindow(window *WindowController, w webview2.WebView, hub *Hub) error {
+func attachNativeWindow(window *WindowController, w webview2.WebView, hub *Hub, docs *DocsService) error {
 	n := nativeWindow{view: w}
 	n.setToolWindowStyle()
 	_ = w.Bind("toggleHeaderVisible", func() bool {
 		return window.ToggleHeaderVisible()
+	})
+	_ = w.Bind("docsQuery", func(query string) {
+		if docs != nil {
+			docs.Query(hub.clientKeyForSessionID(window.activeSession), query)
+		}
+	})
+	_ = w.Bind("docsOpen", func(id string) {
+		if docs != nil {
+			docs.Open(hub.clientKeyForSessionID(window.activeSession), id)
+		}
+	})
+	_ = w.Bind("docsBack", func() {
+		if docs != nil {
+			docs.Back(hub.clientKeyForSessionID(window.activeSession))
+		}
 	})
 	return window.Attach(n, hub)
 }

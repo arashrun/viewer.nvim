@@ -10,7 +10,7 @@ import (
 	webview "github.com/webview/webview_go"
 )
 
-func runNativeApp(hub *Hub, window *WindowController) error {
+func runNativeApp(hub *Hub, window *WindowController, docs *DocsService) error {
 	if !hasGraphicalSession() {
 		return errors.New("no graphical session available: DISPLAY/Wayland not set")
 	}
@@ -20,7 +20,7 @@ func runNativeApp(hub *Hub, window *WindowController) error {
 
 	w.SetTitle("nview")
 	w.SetSize(1200, 900, webview.HintNone)
-	if err := attachNativeWindow(window, w, hub); err != nil {
+	if err := attachNativeWindow(window, w, hub, docs); err != nil {
 		return err
 	}
 	w.Run()

@@ -75,6 +75,26 @@ function M.viewport(payload)
   }
 end
 
+function M.docs_query(payload)
+  return {
+    type = "docs_query",
+    payload = payload or {},
+  }
+end
+
+function M.docs_open(payload)
+  return {
+    type = "docs_open",
+    payload = payload or {},
+  }
+end
+
+function M.docs_back()
+  return {
+    type = "docs_back",
+  }
+end
+
 function M.close()
   return {
     type = "close",

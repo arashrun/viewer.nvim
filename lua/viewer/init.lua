@@ -8,8 +8,10 @@ local state = {
   config = config.merge(),
   transport = nil,
   active = false,
+  session_kind = nil,
   bufnr = nil,
   session_id = nil,
+  last_docs_query = nil,
   preview_timer = nil,
   viewport_timer = nil,
   reconnect_timer = nil,
@@ -308,12 +310,16 @@ local function stop_reconnect_timer()
 end
 
 local function clear_transport()
+  stop_preview_timer()
+  stop_viewport_timer()
+  stop_reconnect_timer()
   if state.transport then
     state.transport:set_on_close(nil)
     state.transport:close()
   end
   state.transport = nil
   state.active = false
+  state.session_kind = nil
   state.reconnecting = false
 end
 
@@ -321,11 +327,10 @@ local schedule_preview_sync
 local schedule_viewport_sync
 local attach_autocmds
 
-local function connect_session(bufnr, transport)
-  state.transport = transport
-  state.active = true
-  state.reconnecting = false
-  ensure_session_id()
+local function install_reconnect_handler(retry_fn)
+  if not state.transport then
+    return
+  end
   state.transport:set_on_close(function()
     if not state.active then
       return
@@ -341,11 +346,16 @@ local function connect_session(bufnr, transport)
         if state.active or not state.reconnecting then
           return
         end
-        M.preview()
+        retry_fn()
       end))
     end
   end)
+end
 
+local function send_common_session_messages()
+  if not state.transport then
+    return
+  end
   state.transport:send(protocol.hello({
     plugin = "viewer.nvim",
     version = "0.1.0",
@@ -355,6 +365,18 @@ local function connect_session(bufnr, transport)
     session_id = ensure_session_id(),
   }))
   state.transport:send(protocol.interval(state.config.auto_hide_ms))
+end
+
+local function connect_session(bufnr, transport)
+  state.transport = transport
+  state.active = true
+  state.session_kind = "markdown"
+  state.reconnecting = false
+  ensure_session_id()
+  install_reconnect_handler(function()
+    M.preview()
+  end)
+  send_common_session_messages()
   state.transport:send(protocol.preview({
     bufnr = bufnr,
     path = vim.api.nvim_buf_get_name(bufnr),
@@ -368,8 +390,26 @@ local function connect_session(bufnr, transport)
   notify("preview started")
 end
 
+local function connect_docs_session(query, transport)
+  state.transport = transport
+  state.active = true
+  state.session_kind = "docs"
+  state.reconnecting = false
+  state.last_docs_query = query
+  ensure_session_id()
+  install_reconnect_handler(function()
+    M.docs_query(query)
+  end)
+  send_common_session_messages()
+  state.transport:send(protocol.docs_query({
+    query = query,
+    session_id = ensure_session_id(),
+  }))
+  notify("docs query started")
+end
+
 schedule_preview_sync = function()
-  if not state.active or not state.transport then
+  if not state.active or not state.transport or state.session_kind ~= "markdown" then
     return
   end
 
@@ -407,7 +447,7 @@ schedule_preview_sync = function()
 end
 
 schedule_viewport_sync = function()
-  if not state.active or not state.transport then
+  if not state.active or not state.transport or state.session_kind ~= "markdown" then
     return
   end
 
@@ -462,13 +502,13 @@ attach_autocmds = function()
 
       if args.event == "BufEnter" then
         state.bufnr = args.buf
-        if not is_markdown_buffer(args.buf) then
+        if state.session_kind ~= "markdown" or not is_markdown_buffer(args.buf) then
           return
         end
         schedule_preview_sync()
       end
 
-      if args.event == "TextChanged" or args.event == "TextChangedI" then
+      if (args.event == "TextChanged" or args.event == "TextChangedI") and state.session_kind == "markdown" then
         schedule_preview_sync()
       end
 
@@ -583,7 +623,64 @@ function M.set_interval(ms)
 end
 
 function M.preview()
+  if state.active and state.transport then
+    clear_transport()
+  end
   start_preview(vim.api.nvim_get_current_buf())
+end
+
+function M.docs_query(query)
+  local normalized = vim.trim(query or "")
+  if normalized == "" then
+    normalized = vim.trim(vim.fn.expand("<cword>"))
+  end
+  if normalized == "" then
+    notify("ViewerDocsQuery expects a non-empty query", vim.log.levels.ERROR)
+    return
+  end
+
+  state.last_docs_query = normalized
+  if state.active and state.transport then
+    state.session_kind = "docs"
+    stop_preview_timer()
+    stop_viewport_timer()
+    install_reconnect_handler(function()
+      M.docs_query(normalized)
+    end)
+    state.transport:send(protocol.docs_query({
+      query = normalized,
+      session_id = ensure_session_id(),
+    }))
+    notify("docs query: " .. normalized)
+    return
+  end
+
+  pick_endpoint(function(ok, transport_or_err)
+    if not ok then
+      notify("failed to connect to nview: " .. transport_or_err, vim.log.levels.ERROR)
+      return
+    end
+
+    stop_reconnect_timer()
+    connect_docs_session(normalized, transport_or_err)
+  end)
+end
+
+function M.docs_back()
+  if not state.active or not state.transport then
+    return
+  end
+  state.transport:send(protocol.docs_back())
+end
+
+function M.docs_open(id)
+  if not state.active or not state.transport then
+    return
+  end
+  if not id or id == "" then
+    return
+  end
+  state.transport:send(protocol.docs_open({ id = id, session_id = ensure_session_id() }))
 end
 
 function M.toggle()

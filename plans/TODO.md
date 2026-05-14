@@ -22,4 +22,4 @@
 
 ## v1.2
 
-- [ ] 支持离线API文档渲染和nvim交互
+- [x] 支持离线API文档渲染和nvim交互查询,并且需要兼容docset这种zeal或dash兼容的格式

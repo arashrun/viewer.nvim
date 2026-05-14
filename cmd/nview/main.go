@@ -21,17 +21,26 @@ type Message struct {
 }
 
 type clientState struct {
-	SessionID string
-	Path      string
-	FileType  string
-	LineCount int
-	Markdown  string
-	HTML      template.HTML
-	Resources map[string]string
-	Cursor    map[string]any
-	Viewport  map[string]any
-	LastType  string
-	UpdatedAt time.Time
+	SessionID         string
+	Path              string
+	FileType          string
+	Mode              string
+	LineCount         int
+	Markdown          string
+	HTML              template.HTML
+	Resources         map[string]string
+	Cursor            map[string]any
+	Viewport          map[string]any
+	LastType          string
+	DocsQuery         string
+	DocsCount         int
+	DocsRoot          string
+	DocsCache         string
+	DocsPreviewTitle  string
+	DocsPreviewPath   string
+	DocsPreviewAnchor string
+	DocsResults       []docsEntry
+	UpdatedAt         time.Time
 }
 
 func sessionIDFromPayload(payload map[string]any) string {
@@ -45,18 +54,26 @@ func sessionIDFromPayload(payload map[string]any) string {
 }
 
 type ViewState struct {
-	SessionID     string         `json:"sessionId"`
-	Connected     bool           `json:"connected"`
-	FileType      string         `json:"filetype"`
-	Path          string         `json:"path"`
-	LineCount     int            `json:"lineCount"`
-	HeaderVisible bool           `json:"headerVisible"`
-	Cursor        map[string]any `json:"cursor,omitempty"`
-	Viewport      map[string]any `json:"viewport,omitempty"`
-	Markdown      string         `json:"markdown"`
-	HTML          template.HTML  `json:"html"`
-	UpdatedAt     time.Time      `json:"updatedAt"`
-	LastType      string         `json:"lastType"`
+	SessionID         string         `json:"sessionId"`
+	Connected         bool           `json:"connected"`
+	FileType          string         `json:"filetype"`
+	Mode              string         `json:"mode,omitempty"`
+	Path              string         `json:"path"`
+	LineCount         int            `json:"lineCount"`
+	HeaderVisible     bool           `json:"headerVisible"`
+	Cursor            map[string]any `json:"cursor,omitempty"`
+	Viewport          map[string]any `json:"viewport,omitempty"`
+	Markdown          string         `json:"markdown"`
+	HTML              template.HTML  `json:"html"`
+	DocsQuery         string         `json:"docsQuery,omitempty"`
+	DocsCount         int            `json:"docsCount,omitempty"`
+	DocsRoot          string         `json:"docsRoot,omitempty"`
+	DocsCache         string         `json:"docsCache,omitempty"`
+	DocsPreviewTitle  string         `json:"docsPreviewTitle,omitempty"`
+	DocsPreviewPath   string         `json:"docsPreviewPath,omitempty"`
+	DocsPreviewAnchor string         `json:"docsPreviewAnchor,omitempty"`
+	UpdatedAt         time.Time      `json:"updatedAt"`
+	LastType          string         `json:"lastType"`
 }
 
 type Hub struct {
@@ -66,6 +83,8 @@ type Hub struct {
 	activeClient string
 	clients      map[chan struct{}]struct{}
 }
+
+var globalHub *Hub
 
 func NewHub() *Hub {
 	return &Hub{
@@ -134,6 +153,7 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 		return
 	}
 	h.state.FileType = client.FileType
+	h.state.Mode = client.Mode
 	h.state.Path = client.Path
 	h.state.LineCount = client.LineCount
 	h.state.Markdown = client.Markdown
@@ -145,6 +165,13 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.Viewport = client.Viewport
 	h.state.LastType = client.LastType
 	h.state.SessionID = client.SessionID
+	h.state.DocsQuery = client.DocsQuery
+	h.state.DocsCount = client.DocsCount
+	h.state.DocsRoot = client.DocsRoot
+	h.state.DocsCache = client.DocsCache
+	h.state.DocsPreviewTitle = client.DocsPreviewTitle
+	h.state.DocsPreviewPath = client.DocsPreviewPath
+	h.state.DocsPreviewAnchor = client.DocsPreviewAnchor
 	h.state.UpdatedAt = time.Now()
 }
 
@@ -175,6 +202,7 @@ func (h *Hub) removeClient(sessionID string) bool {
 	} else {
 		h.state.Path = ""
 		h.state.FileType = ""
+		h.state.Mode = ""
 		h.state.LineCount = 0
 		h.state.Markdown = ""
 		h.state.HTML = ""
@@ -182,6 +210,13 @@ func (h *Hub) removeClient(sessionID string) bool {
 		h.state.Viewport = nil
 		h.state.LastType = "disconnect"
 		h.state.SessionID = ""
+		h.state.DocsQuery = ""
+		h.state.DocsCount = 0
+		h.state.DocsRoot = ""
+		h.state.DocsCache = ""
+		h.state.DocsPreviewTitle = ""
+		h.state.DocsPreviewPath = ""
+		h.state.DocsPreviewAnchor = ""
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
@@ -191,17 +226,35 @@ func (h *Hub) removeClient(sessionID string) bool {
 	return empty
 }
 
+func (h *Hub) clientKeyForSessionID(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clientsState[sessionID]; ok {
+		return sessionID
+	}
+	for key, client := range h.clientsState {
+		if client != nil && client.SessionID == sessionID {
+			return key
+		}
+	}
+	return sessionID
+}
+
 type DesktopApp struct {
 	hub    *Hub
 	window *WindowController
+	docs   *DocsService
 }
 
-func NewDesktopApp(hub *Hub, window *WindowController) *DesktopApp {
-	return &DesktopApp{hub: hub, window: window}
+func NewDesktopApp(hub *Hub, window *WindowController, docs *DocsService) *DesktopApp {
+	return &DesktopApp{hub: hub, window: window, docs: docs}
 }
 
 func (a *DesktopApp) Run() error {
-	return runNativeApp(a.hub, a.window)
+	return runNativeApp(a.hub, a.window, a.docs)
 }
 
 func renderAppHTML(state ViewState, headerVisible bool) string {
@@ -233,6 +286,8 @@ func main() {
 	}
 
 	hub := NewHub()
+	globalHub = hub
+	docs := NewDocsService(*docsRoot, *docsCacheDir)
 	window := NewWindowController("nview", "nview")
 	window.SetStateSaver(func(state persistedWindowState) error {
 		return saveWindowState(*statePath, state)
@@ -251,7 +306,7 @@ func main() {
 	go monitorWindowInactivity(window, &lastMessageAt)
 
 	go func() {
-		if err := serveTCP(*listenAddr, hub, window, &lastMessageAt); err != nil {
+		if err := serveTCP(*listenAddr, hub, window, docs, &lastMessageAt); err != nil {
 			log.Fatalf("nview tcp server error: %v", err)
 		}
 	}()
@@ -261,7 +316,7 @@ func main() {
 	log.Printf("nview docs cache: %s", *docsCacheDir)
 	log.Printf("nview desktop UI starting")
 
-	app := NewDesktopApp(hub, window)
+	app := NewDesktopApp(hub, window, docs)
 	if err := app.Run(); err != nil {
 		log.Printf("nview desktop error: %v", err)
 		os.Exit(1)
@@ -290,7 +345,7 @@ func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
 	}
 }
 
-func serveTCP(addr string, hub *Hub, window *WindowController, lastMessageAt *int64) error {
+func serveTCP(addr string, hub *Hub, window *WindowController, docs *DocsService, lastMessageAt *int64) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -302,11 +357,11 @@ func serveTCP(addr string, hub *Hub, window *WindowController, lastMessageAt *in
 		if err != nil {
 			return err
 		}
-		go handleConn(conn, hub, window, lastMessageAt)
+		go handleConn(conn, hub, window, docs, lastMessageAt)
 	}
 }
 
-func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt *int64) {
+func handleConn(conn net.Conn, hub *Hub, window *WindowController, docs *DocsService, lastMessageAt *int64) {
 	defer conn.Close()
 	sessionID := conn.RemoteAddr().String()
 
@@ -346,6 +401,24 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 			updatePreview(hub, sessionID, msg)
 		case "viewport":
 			updateViewport(hub, window, sessionID, msg)
+		case "docs_query":
+			if docs != nil {
+				query := ""
+				if v, ok := msg.Payload["query"].(string); ok {
+					query = v
+				}
+				docs.Query(sessionID, query)
+			}
+		case "docs_open":
+			if docs != nil {
+				if v, ok := msg.Payload["id"].(string); ok {
+					docs.Open(sessionID, v)
+				}
+			}
+		case "docs_back":
+			if docs != nil {
+				docs.Back(sessionID)
+			}
 		case "session":
 			hub.upsertClient(sessionID, func(client *clientState) {
 				if sessionIDPayload != "" {
@@ -379,6 +452,16 @@ func updatePreview(hub *Hub, sessionID string, msg Message) {
 	sessionIDPayload := sessionIDFromPayload(msg.Payload)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.LastType = msg.Type
+		client.Mode = "markdown"
+		client.FileType = "markdown"
+		client.DocsQuery = ""
+		client.DocsCount = 0
+		client.DocsRoot = ""
+		client.DocsCache = ""
+		client.DocsPreviewTitle = ""
+		client.DocsPreviewPath = ""
+		client.DocsPreviewAnchor = ""
+		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
 		}
@@ -412,6 +495,15 @@ func updateViewport(hub *Hub, window *WindowController, sessionID string, msg Me
 	sessionIDPayload := sessionIDFromPayload(msg.Payload)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.LastType = msg.Type
+		client.Mode = "markdown"
+		client.DocsQuery = ""
+		client.DocsCount = 0
+		client.DocsRoot = ""
+		client.DocsCache = ""
+		client.DocsPreviewTitle = ""
+		client.DocsPreviewPath = ""
+		client.DocsPreviewAnchor = ""
+		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
 		}
@@ -614,6 +706,10 @@ const pageHTML = `<!doctype html>
       position: relative;
       z-index: 1;
     }
+    article.docs-mode {
+      max-width: none;
+      width: 100%;
+    }
     article > *:first-child {
       margin-top: 0;
     }
@@ -632,6 +728,112 @@ const pageHTML = `<!doctype html>
       pointer-events: none;
       z-index: 0;
       display: none;
+    }
+    .docs-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      width: 100%;
+      min-width: 0;
+    }
+    .docs-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .docs-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .docs-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 280px;
+      min-width: 260px;
+    }
+    .docs-search-input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }
+    .docs-search button,
+    .docs-back,
+    .docs-result {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }
+    .docs-search button,
+    .docs-back {
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+    .docs-result {
+      width: 100%;
+      padding: 14px 16px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .docs-result:hover,
+    .docs-result:focus {
+      background: #fbfaf7;
+      border-color: #cfc7b9;
+      outline: none;
+    }
+    .docs-results {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .docs-result-name {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .docs-result-meta,
+    .docs-meta,
+    .docs-query {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .docs-empty {
+      padding: 24px 20px;
+      border: 1px dashed var(--border);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.65);
+      color: var(--muted);
+    }
+    .docs-preview {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+    }
+    .docs-preview-frame {
+      width: 100%;
+      min-height: 72vh;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .docs-shell-preview .docs-toolbar {
+      position: sticky;
+      top: 0;
+      padding: 8px 0 12px;
+      background: linear-gradient(to bottom, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.88));
+      backdrop-filter: blur(8px);
+      z-index: 2;
     }
     pre {
       padding: 16px;
@@ -699,7 +901,7 @@ const pageHTML = `<!doctype html>
     let headerVisible = {{if .HeaderVisible}}true{{else}}false{{end}};
 
     function scrollPreview(state) {
-      if (!contentEl || !previewEl) {
+      if (!contentEl || !previewEl || state.mode === 'docs') {
         return;
       }
 
@@ -717,8 +919,71 @@ const pageHTML = `<!doctype html>
       cursorlineEl.style.display = 'none';
     }
 
+    function scrollDocsAnchor(state) {
+      if (!previewEl || state.mode !== 'docs' || !state.docsPreviewAnchor) {
+        return;
+      }
+      const frame = previewEl.querySelector('[data-doc-preview-frame]');
+      if (!frame || !frame.contentDocument) {
+        return;
+      }
+      const doc = frame.contentDocument;
+      const escapedAnchor = window.CSS && typeof CSS.escape === 'function'
+        ? CSS.escape(state.docsPreviewAnchor)
+        : state.docsPreviewAnchor.replace(/"/g, '\\"');
+      const target = doc.querySelector('#' + escapedAnchor)
+        || doc.querySelector('[name="' + escapedAnchor + '"]');
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'start', inline: 'nearest' });
+      }
+    }
+
+    function wireDocsInteractions(state) {
+      if (!previewEl || state.mode !== 'docs') {
+        return;
+      }
+
+      const form = previewEl.querySelector('[data-doc-search-form]');
+      if (form) {
+        form.addEventListener('submit', function(ev) {
+          ev.preventDefault();
+          const input = form.querySelector('[data-doc-search-input]');
+          const value = input && typeof input.value === 'string' ? input.value.trim() : '';
+          if (value && typeof window.docsQuery === 'function') {
+            window.docsQuery(value);
+          }
+        });
+      }
+
+      const backBtn = previewEl.querySelector('[data-doc-back]');
+      if (backBtn) {
+        backBtn.addEventListener('click', function() {
+          if (typeof window.docsBack === 'function') {
+            window.docsBack();
+          }
+        });
+      }
+
+      previewEl.querySelectorAll('[data-doc-open]').forEach(function(node) {
+        node.addEventListener('click', function() {
+          const id = node.getAttribute('data-doc-open');
+          if (id && typeof window.docsOpen === 'function') {
+            window.docsOpen(id);
+          }
+        });
+      });
+
+      const frame = previewEl.querySelector('[data-doc-preview-frame]');
+      if (frame) {
+        frame.addEventListener('load', function() {
+          scrollDocsAnchor(state);
+        });
+      }
+    }
+
     function positionCursorline(state) {
-      if (!previewEl || !contentEl || !cursorlineEl) {
+      if (!previewEl || !contentEl || !cursorlineEl || state.mode !== 'markdown') {
+        hideCursorline();
         return;
       }
       const row = state.cursor && typeof state.cursor.row === 'number' ? state.cursor.row : 0;
@@ -788,15 +1053,23 @@ const pageHTML = `<!doctype html>
     window.__applyState = function(state) {
       statusEl.textContent = state.connected ? 'connected' : 'waiting for nvim';
       statusEl.classList.toggle('off', !state.connected);
-      pathEl.textContent = state.path || 'No document yet';
+      const isDocs = state.mode === 'docs';
+      pathEl.textContent = isDocs
+        ? (state.docsPreviewPath || state.docsQuery || state.docsRoot || 'Offline docs')
+        : (state.path || 'No document yet');
       const cursor = state.cursor ? 'cursor ' + (state.cursor.row || 0) + ':' + (state.cursor.col || 0) : 'cursor idle';
-      infoEl.textContent = (state.filetype || 'unknown filetype') + ' · ' + cursor;
+      infoEl.textContent = isDocs
+        ? 'docs · ' + (state.docsQuery || 'query') + ' · ' + (state.docsCount || 0) + ' result(s)'
+        : (state.filetype || 'unknown filetype') + ' · ' + cursor;
+      previewEl.classList.toggle('docs-mode', state.mode === 'docs');
       previewEl.innerHTML = state.html || '<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>';
       if (typeof state.headerVisible === 'boolean') {
         applyHeaderVisible(state.headerVisible);
       }
+      wireDocsInteractions(state);
       positionCursorline(state);
       scrollPreview(state);
+      scrollDocsAnchor(state);
     };
     applyHeaderVisible(headerVisible);
     window.__applyState({{.StateJSON}});

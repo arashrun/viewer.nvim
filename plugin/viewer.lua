@@ -32,3 +32,13 @@ vim.api.nvim_create_user_command("ViewerInterval", function(opts)
 end, {
   nargs = 1,
 })
+
+vim.api.nvim_create_user_command("ViewerDocsQuery", function(opts)
+  viewer.docs_query(opts.args)
+end, {
+  nargs = "*",
+})
+
+vim.api.nvim_create_user_command("ViewerDocsBack", function()
+  viewer.docs_back()
+end, {})

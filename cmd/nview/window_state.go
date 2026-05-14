@@ -22,9 +22,9 @@ func defaultWindowState() WindowState {
 			Width:  860,
 			Height: 620,
 		},
-		TopMost: true,
-		Visible: false,
-		Focused: false,
+		TopMost:       true,
+		Visible:       false,
+		Focused:       false,
 		HeaderVisible: true,
 		AutoHideMS:    3000,
 	}
