@@ -101,8 +101,8 @@ func (r imageResolver) Resolve(dest string) string {
 
 var imageSrcPattern = regexp.MustCompile(`(<img\b[^>]*\bsrc=")([^"]+)(")`)
 
-func rewriteImageSources(htmlSource string, baseDir string) string {
-	if baseDir == "" {
+func rewriteImageSources(htmlSource string, baseDir string, resources map[string]string) string {
+	if baseDir == "" && len(resources) == 0 {
 		return htmlSource
 	}
 
@@ -112,7 +112,17 @@ func rewriteImageSources(htmlSource string, baseDir string) string {
 		if len(parts) != 4 {
 			return match
 		}
+		if resources != nil {
+			if dataURI, ok := resources[parts[2]]; ok && dataURI != "" {
+				return parts[1] + template.HTMLEscapeString(dataURI) + parts[3]
+			}
+		}
 		resolved := resolver.Resolve(parts[2])
+		if resources != nil {
+			if dataURI, ok := resources[resolved]; ok && dataURI != "" {
+				return parts[1] + template.HTMLEscapeString(dataURI) + parts[3]
+			}
+		}
 		if resolved == "" || resolved == parts[2] {
 			return match
 		}
@@ -120,11 +130,10 @@ func rewriteImageSources(htmlSource string, baseDir string) string {
 	})
 }
 
-func renderMarkdownHTML(markdown, baseDir string) template.HTML {
+func renderMarkdownHTML(markdown, baseDir string, resources map[string]string) template.HTML {
 	var buf bytes.Buffer
 	if err := markdownRenderer.Convert([]byte(markdown), &buf); err != nil {
 		return template.HTML("<pre class=\"error\">render failed</pre>")
 	}
-	return template.HTML(rewriteImageSources(buf.String(), baseDir))
+	return template.HTML(rewriteImageSources(buf.String(), baseDir, resources))
 }
-

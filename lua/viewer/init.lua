@@ -35,6 +35,135 @@ local function ensure_session_id()
   return state.session_id
 end
 
+local function buffer_base_dir(bufnr)
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  if not path or path == "" then
+    return nil
+  end
+  return vim.fs.dirname(path)
+end
+
+local function image_mime_from_path(path)
+  local ext = vim.fn.fnamemodify(path, ":e"):lower()
+  if ext == "jpg" or ext == "jpeg" then
+    return "image/jpeg"
+  end
+  if ext == "png" then
+    return "image/png"
+  end
+  if ext == "gif" then
+    return "image/gif"
+  end
+  if ext == "webp" then
+    return "image/webp"
+  end
+  if ext == "svg" then
+    return "image/svg+xml"
+  end
+  if ext == "avif" then
+    return "image/avif"
+  end
+  if ext == "bmp" then
+    return "image/bmp"
+  end
+  if ext == "tif" or ext == "tiff" then
+    return "image/tiff"
+  end
+  return "application/octet-stream"
+end
+
+local function encode_base64_blob(blob)
+  if vim.base64 and vim.base64.encode then
+    return vim.base64.encode(blob)
+  end
+  return nil
+end
+
+local function read_binary_file(path)
+  local fd = vim.loop.fs_open(path, "r", 438)
+  if not fd then
+    return nil
+  end
+  local stat = vim.loop.fs_fstat(fd)
+  if not stat or not stat.size or stat.size <= 0 then
+    vim.loop.fs_close(fd)
+    return nil
+  end
+
+  local data = vim.loop.fs_read(fd, stat.size, 0)
+  vim.loop.fs_close(fd)
+  return data
+end
+
+local function resolve_image_target(base_dir, raw_target)
+  local target = raw_target:gsub("^%s+", ""):gsub("%s+$", "")
+  if target:sub(1, 1) == "<" and target:sub(-1) == ">" then
+    target = target:sub(2, -2)
+  else
+    local dest = target:match("^(.-)%s+[\"']")
+    if dest and dest ~= "" then
+      target = dest
+    end
+  end
+  target = target:gsub('\\"', '"')
+  if target == "" then
+    return nil
+  end
+  if target:match("^https?://") or target:match("^data:") then
+    return nil
+  end
+  if target:match("^/") or target:match("^%a:[/\\]") then
+    return target
+  end
+  if not base_dir or base_dir == "" then
+    return target
+  end
+  return vim.fs.joinpath(base_dir, target)
+end
+
+local function collect_markdown_resources(bufnr, lines)
+  local base_dir = buffer_base_dir(bufnr)
+  if not base_dir then
+    return {}
+  end
+
+  local seen = {}
+  local resources = {}
+
+  for _, line in ipairs(lines) do
+    for raw in line:gmatch("!%b[]%(([^)]-)%)") do
+      local dest = raw:gsub("^%s+", ""):gsub("%s+$", "")
+      if dest:sub(1, 1) == "<" and dest:sub(-1) == ">" then
+        dest = dest:sub(2, -2)
+      else
+        local stripped = dest:match("^(.-)%s+[\"']")
+        if stripped and stripped ~= "" then
+          dest = stripped
+        end
+      end
+
+      local target = resolve_image_target(base_dir, dest)
+      if target and not seen[target] then
+        seen[target] = true
+        local binary = read_binary_file(target)
+        if binary then
+          local encoded = encode_base64_blob(binary)
+          if encoded then
+            resources[#resources + 1] = {
+              src = dest,
+              path = target,
+              mime = image_mime_from_path(target),
+              data = encoded,
+            }
+          end
+        end
+      end
+    end
+  end
+
+  return resources
+end
+
 local function notify(msg, level)
   vim.schedule(function()
     vim.notify(msg, level or vim.log.levels.INFO, { title = "viewer.nvim" })
@@ -95,6 +224,27 @@ local function resolve_nview_command()
   return nil
 end
 
+local function with_nview_args(cmd)
+  local result = {}
+  for i = 1, #cmd do
+    result[#result + 1] = cmd[i]
+  end
+
+  local auto_hide_arg = string.format("-auto-hide-ms=%d", tonumber(state.config.auto_hide_ms) or 3000)
+  local has_auto_hide = false
+  for i = 1, #result do
+    if tostring(result[i]):match("^%-auto%-hide%-ms=") then
+      has_auto_hide = true
+      break
+    end
+  end
+  if not has_auto_hide then
+    result[#result + 1] = auto_hide_arg
+  end
+
+  return result
+end
+
 local function spawn_nview(callback)
   if state.spawning then
     callback(false, "nview is starting")
@@ -106,6 +256,8 @@ local function spawn_nview(callback)
     callback(false, "nview executable not found")
     return
   end
+
+  cmd = with_nview_args(cmd)
 
   state.spawning = true
   vim.schedule(function()
@@ -228,6 +380,7 @@ schedule_preview_sync = function()
     local cursor = vim.api.nvim_win_get_cursor(vim.api.nvim_get_current_win())
     local width = vim.api.nvim_win_get_width(vim.api.nvim_get_current_win())
     local height = vim.api.nvim_win_get_height(vim.api.nvim_get_current_win())
+    local resources = collect_markdown_resources(bufnr, lines)
     local payload = {
       bufnr = bufnr,
       path = vim.api.nvim_buf_get_name(bufnr),
@@ -236,6 +389,7 @@ schedule_preview_sync = function()
       line_count = #lines,
       cursor = { row = cursor[1], col = cursor[2] },
       viewport = { width = width, height = height },
+      resources = resources,
       session_id = ensure_session_id(),
     }
 
@@ -264,10 +418,12 @@ schedule_viewport_sync = function()
     local cursor = vim.api.nvim_win_get_cursor(winid)
     local width = vim.api.nvim_win_get_width(winid)
     local height = vim.api.nvim_win_get_height(winid)
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     local payload = {
       bufnr = bufnr,
       path = vim.api.nvim_buf_get_name(bufnr),
       filetype = vim.bo[bufnr].filetype,
+      resources = collect_markdown_resources(bufnr, lines),
       cursor = { row = cursor[1], col = cursor[2] },
       viewport = { width = width, height = height },
       session_id = ensure_session_id(),

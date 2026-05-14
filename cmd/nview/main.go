@@ -28,6 +28,7 @@ type clientState struct {
 	LineCount int
 	Markdown  string
 	HTML      template.HTML
+	Resources map[string]string
 	Cursor    map[string]any
 	Viewport  map[string]any
 	LastType  string
@@ -138,6 +139,9 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.LineCount = client.LineCount
 	h.state.Markdown = client.Markdown
 	h.state.HTML = client.HTML
+	if client.Resources != nil {
+		h.state.Markdown = client.Markdown
+	}
 	h.state.Cursor = client.Cursor
 	h.state.Viewport = client.Viewport
 	h.state.LastType = client.LastType
@@ -372,7 +376,8 @@ func updatePreview(hub *Hub, sessionID string, msg Message) {
 			if client.Path != "" {
 				baseDir = filepath.Dir(client.Path)
 			}
-			client.HTML = renderMarkdownHTML(md, baseDir)
+			client.Resources = parseResources(msg.Payload["resources"])
+			client.HTML = renderMarkdownHTML(md, baseDir, client.Resources)
 		}
 	})
 }
@@ -389,6 +394,40 @@ func updateViewport(hub *Hub, window *WindowController, sessionID string, msg Me
 			client.Cursor = cursor
 		}
 	})
+}
+
+func parseResources(raw any) map[string]string {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	resources := make(map[string]string)
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		data, _ := entry["data"].(string)
+		if data == "" {
+			continue
+		}
+		mime, _ := entry["mime"].(string)
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		dataURI := "data:" + mime + ";base64," + data
+		if src, ok := entry["src"].(string); ok && src != "" {
+			resources[src] = dataURI
+		}
+		if path, ok := entry["path"].(string); ok && path != "" {
+			resources[path] = dataURI
+		}
+	}
+	if len(resources) == 0 {
+		return nil
+	}
+	return resources
 }
 
 func joinLines(lines []string) string {
@@ -535,9 +574,13 @@ const pageHTML = `<!doctype html>
       max-width: 100%;
     }
     [data-active-line="true"] {
-      background: rgba(15, 118, 110, 0.12);
-      box-shadow: inset 3px 0 0 rgba(15, 118, 110, 0.8);
-      border-radius: 6px;
+      background: rgba(15, 118, 110, 0.16);
+      box-shadow:
+        inset 4px 0 0 rgba(15, 118, 110, 0.95),
+        0 0 0 1px rgba(15, 118, 110, 0.18);
+      border-radius: 8px;
+      position: relative;
+      z-index: 0;
     }
     [data-active-line="true"] code {
       background: transparent;
