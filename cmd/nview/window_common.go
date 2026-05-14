@@ -26,6 +26,7 @@ type WindowController struct {
 	state         WindowState
 	persisted     persistedWindowState
 	activeSession string
+	activeInterval time.Duration
 	done          chan struct{}
 	closed        bool
 }
@@ -57,13 +58,35 @@ func (w *WindowController) ApplySession(sessionID string) {
 	w.activeSession = sessionID
 	if sessionID == "" {
 		w.state = mergeWindowState(defaultWindowState(), w.persisted.Default)
+		w.activeInterval = time.Duration(w.state.AutoHideMS) * time.Millisecond
 		return
 	}
 	if sessionState, ok := w.persisted.Sessions[sessionID]; ok && sessionState.Valid() {
 		w.state = mergeWindowState(defaultWindowState(), sessionState)
+		w.activeInterval = time.Duration(w.state.AutoHideMS) * time.Millisecond
 		return
 	}
 	w.state = mergeWindowState(defaultWindowState(), w.persisted.Default)
+	w.activeInterval = time.Duration(w.state.AutoHideMS) * time.Millisecond
+}
+
+func (w *WindowController) ActiveAutoHideInterval() time.Duration {
+	if w.activeInterval <= 0 {
+		if w.state.AutoHideMS <= 0 {
+			return time.Duration(defaultWindowState().AutoHideMS) * time.Millisecond
+		}
+		return time.Duration(w.state.AutoHideMS) * time.Millisecond
+	}
+	return w.activeInterval
+}
+
+func (w *WindowController) SetActiveAutoHideInterval(ms int) {
+	if ms <= 0 {
+		return
+	}
+	w.state.AutoHideMS = ms
+	w.activeInterval = time.Duration(ms) * time.Millisecond
+	w.persistState()
 }
 
 func (w *WindowController) ToggleHeaderVisible() bool {

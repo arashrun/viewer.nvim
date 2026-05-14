@@ -54,6 +54,13 @@ function M.session(payload)
   }
 end
 
+function M.interval(ms)
+  return {
+    type = "interval",
+    payload = { auto_hide_ms = tonumber(ms) or 0 },
+  }
+end
+
 function M.focus(state)
   return {
     type = "focus",

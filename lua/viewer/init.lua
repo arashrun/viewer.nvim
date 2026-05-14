@@ -35,6 +35,14 @@ local function ensure_session_id()
   return state.session_id
 end
 
+local function normalize_interval_ms(value)
+  local ms = tonumber(value)
+  if not ms or ms <= 0 then
+    return nil
+  end
+  return math.floor(ms)
+end
+
 local function buffer_base_dir(bufnr)
   local path = vim.api.nvim_buf_get_name(bufnr)
   if not path or path == "" then
@@ -346,6 +354,7 @@ local function connect_session(bufnr, transport)
   state.transport:send(protocol.session({
     session_id = ensure_session_id(),
   }))
+  state.transport:send(protocol.interval(state.config.auto_hide_ms))
   state.transport:send(protocol.preview({
     bufnr = bufnr,
     path = vim.api.nvim_buf_get_name(bufnr),
@@ -553,6 +562,24 @@ function M.setup(user_config)
       end
     end)
   end
+end
+
+function M.set_interval(ms)
+  local normalized = normalize_interval_ms(ms)
+  if not normalized then
+    notify("ViewerInterval expects a positive integer", vim.log.levels.ERROR)
+    return
+  end
+
+  if normalized < 1000 then
+    normalized = normalized * 1000
+  end
+
+  state.config.auto_hide_ms = normalized
+  if state.transport then
+    state.transport:send(protocol.interval(normalized))
+  end
+  notify("auto hide interval set to " .. normalized .. " ms")
 end
 
 function M.preview()

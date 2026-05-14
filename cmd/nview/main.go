@@ -234,10 +234,15 @@ func main() {
 	if state, err := loadWindowState(*statePath); err == nil {
 		window.SetPersistedState(state)
 	}
+	if *autoHideMS > 0 {
+		window.state.AutoHideMS = *autoHideMS
+		window.activeInterval = time.Duration(*autoHideMS) * time.Millisecond
+		window.persistState()
+	}
 
 	var lastMessageAt int64
 	atomic.StoreInt64(&lastMessageAt, time.Now().UnixNano())
-	go monitorWindowInactivity(window, &lastMessageAt, time.Duration(*autoHideMS)*time.Millisecond)
+	go monitorWindowInactivity(window, &lastMessageAt)
 
 	go func() {
 		if err := serveTCP(*listenAddr, hub, window, &lastMessageAt); err != nil {
@@ -256,7 +261,7 @@ func main() {
 	_ = saveWindowState(*statePath, window.persisted)
 }
 
-func monitorWindowInactivity(window *WindowController, lastMessageAt *int64, autoHideAfter time.Duration) {
+func monitorWindowInactivity(window *WindowController, lastMessageAt *int64) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -265,6 +270,7 @@ func monitorWindowInactivity(window *WindowController, lastMessageAt *int64, aut
 			atomic.StoreInt64(lastMessageAt, time.Now().UnixNano())
 			continue
 		}
+		autoHideAfter := window.ActiveAutoHideInterval()
 		if autoHideAfter <= 0 {
 			continue
 		}
@@ -339,6 +345,13 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, lastMessageAt
 				}
 				client.LastType = msg.Type
 			})
+		case "interval":
+			if ms, ok := intervalFromPayload(msg.Payload); ok {
+				window.SetActiveAutoHideInterval(ms)
+				hub.upsertClient(sessionID, func(client *clientState) {
+					client.LastType = msg.Type
+				})
+			}
 		case "close":
 			hub.upsertClient(sessionID, func(client *clientState) {
 				client.LastType = msg.Type
@@ -428,6 +441,23 @@ func parseResources(raw any) map[string]string {
 		return nil
 	}
 	return resources
+}
+
+func intervalFromPayload(payload map[string]any) (int, bool) {
+	if payload == nil {
+		return 0, false
+	}
+	switch v := payload["auto_hide_ms"].(type) {
+	case float64:
+		if v > 0 {
+			return int(v), true
+		}
+	case int:
+		if v > 0 {
+			return v, true
+		}
+	}
+	return 0, false
 }
 
 func joinLines(lines []string) string {

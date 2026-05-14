@@ -13,6 +13,7 @@ type WindowState struct {
 	Visible       bool         `json:"visible"`
 	Focused       bool         `json:"focused"`
 	HeaderVisible bool         `json:"headerVisible"`
+	AutoHideMS    int          `json:"autoHideMs"`
 }
 
 func defaultWindowState() WindowState {
@@ -25,6 +26,7 @@ func defaultWindowState() WindowState {
 		Visible: false,
 		Focused: false,
 		HeaderVisible: true,
+		AutoHideMS:    3000,
 	}
 }
 
@@ -45,6 +47,9 @@ func mergeWindowState(base, loaded WindowState) WindowState {
 	}
 	if !loaded.HeaderVisible && !base.HeaderVisible {
 		loaded.HeaderVisible = true
+	}
+	if loaded.AutoHideMS <= 0 {
+		loaded.AutoHideMS = base.AutoHideMS
 	}
 	return loaded
 }
