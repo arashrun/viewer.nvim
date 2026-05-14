@@ -31,5 +31,4 @@ vim.api.nvim_create_user_command("ViewerInterval", function(opts)
   viewer.set_interval(opts.args)
 end, {
   nargs = 1,
-  complete = "customlist",
 })
