@@ -1,4 +1,3 @@
-bin/
 
 # Local vendored copy of go-webview2 only keeps a small subset of files in git.
 third_party/go-webview2/.github/
