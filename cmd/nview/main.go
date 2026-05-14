@@ -13,7 +13,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
 )
 
 type Message struct {
@@ -46,26 +45,26 @@ func sessionIDFromPayload(payload map[string]any) string {
 }
 
 type ViewState struct {
-	SessionID string         `json:"sessionId"`
-	Connected bool           `json:"connected"`
-	FileType  string         `json:"filetype"`
-	Path      string         `json:"path"`
-	LineCount int            `json:"lineCount"`
-	HeaderVisible bool       `json:"headerVisible"`
-	Cursor    map[string]any `json:"cursor,omitempty"`
-	Viewport  map[string]any `json:"viewport,omitempty"`
-	Markdown  string         `json:"markdown"`
-	HTML      template.HTML  `json:"html"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	LastType  string         `json:"lastType"`
+	SessionID     string         `json:"sessionId"`
+	Connected     bool           `json:"connected"`
+	FileType      string         `json:"filetype"`
+	Path          string         `json:"path"`
+	LineCount     int            `json:"lineCount"`
+	HeaderVisible bool           `json:"headerVisible"`
+	Cursor        map[string]any `json:"cursor,omitempty"`
+	Viewport      map[string]any `json:"viewport,omitempty"`
+	Markdown      string         `json:"markdown"`
+	HTML          template.HTML  `json:"html"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	LastType      string         `json:"lastType"`
 }
 
 type Hub struct {
 	mu           sync.Mutex
 	state        ViewState
-	clientsState  map[string]*clientState
-	activeClient  string
-	clients       map[chan struct{}]struct{}
+	clientsState map[string]*clientState
+	activeClient string
+	clients      map[chan struct{}]struct{}
 }
 
 func NewHub() *Hub {
@@ -75,7 +74,7 @@ func NewHub() *Hub {
 			UpdatedAt: time.Now(),
 		},
 		clientsState: make(map[string]*clientState),
-		clients: make(map[chan struct{}]struct{}),
+		clients:      make(map[chan struct{}]struct{}),
 	}
 }
 
@@ -225,8 +224,13 @@ func renderAppHTML(state ViewState, headerVisible bool) string {
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
 	statePath := flag.String("state-file", defaultStatePath(), "window state file")
+	docsRoot := flag.String("docs-root", defaultDocsRoot(), "offline docs root directory")
+	docsCacheDir := flag.String("docs-cache-dir", "", "offline docs cache directory (defaults to <docs-root>/cache)")
 	autoHideMS := flag.Int("auto-hide-ms", 3000, "auto hide interval in milliseconds")
 	flag.Parse()
+	if *docsCacheDir == "" {
+		*docsCacheDir = defaultDocsCacheDir(*docsRoot)
+	}
 
 	hub := NewHub()
 	window := NewWindowController("nview", "nview")
@@ -253,6 +257,8 @@ func main() {
 	}()
 
 	log.Printf("nview tcp listening on %s", *listenAddr)
+	log.Printf("nview docs root: %s", *docsRoot)
+	log.Printf("nview docs cache: %s", *docsCacheDir)
 	log.Printf("nview desktop UI starting")
 
 	app := NewDesktopApp(hub, window)
