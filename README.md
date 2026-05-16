@@ -100,6 +100,12 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
 :ViewerToggle
 ```
 
+4. 查询当前光标词对应的离线文档:
+
+```vim
+:ViewerDocsWord
+```
+
 ### 配置示例
 
 ```lua
@@ -108,5 +114,14 @@ require("viewer").setup({
   remote_endpoint = { host = "192.168.1.10", port = 7357 },
   probe_timeout_ms = 1000,
   auto_start = false,
+  docs_lookup_keymap = "<leader>vd",
+})
+```
+
+如果不想要默认映射:
+
+```lua
+require("viewer").setup({
+  docs_lookup_keymap = false,
 })
 ```

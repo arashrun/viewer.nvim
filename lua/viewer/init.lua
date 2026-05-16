@@ -17,6 +17,7 @@ local state = {
   reconnect_timer = nil,
   reconnecting = false,
   spawning = false,
+  docs_lookup_keymap = nil,
 }
 
 local reconnect_delay_ms = 1000
@@ -178,6 +179,30 @@ local function notify(msg, level)
   vim.schedule(function()
     vim.notify(msg, level or vim.log.levels.INFO, { title = "viewer.nvim" })
   end)
+end
+
+local function current_buffer_filetype()
+  return vim.bo[vim.api.nvim_get_current_buf()].filetype
+end
+
+local function set_docs_lookup_keymap(keymap)
+  if state.docs_lookup_keymap then
+    pcall(vim.keymap.del, "n", state.docs_lookup_keymap)
+    state.docs_lookup_keymap = nil
+  end
+
+  if keymap == false then
+    return
+  end
+
+  local effective_keymap = keymap or "<leader>vd"
+  vim.keymap.set("n", effective_keymap, function()
+    M.docs_query_from_current_word()
+  end, {
+    desc = "Lookup offline docs for current word",
+    silent = true,
+  })
+  state.docs_lookup_keymap = effective_keymap
 end
 
 local function endpoint_equals(a, b)
@@ -403,6 +428,7 @@ local function connect_docs_session(query, transport)
   send_common_session_messages()
   state.transport:send(protocol.docs_query({
     query = query,
+    filetype = current_buffer_filetype(),
     session_id = ensure_session_id(),
   }))
   notify("docs query started")
@@ -593,6 +619,7 @@ end
 function M.setup(user_config)
   state.config = config.merge(user_config)
   math.randomseed(vim.loop.hrtime() % 2147483647)
+  set_docs_lookup_keymap(state.config.docs_lookup_keymap)
 
   if state.config.auto_start then
     vim.schedule(function()
@@ -649,6 +676,7 @@ function M.docs_query(query)
     end)
     state.transport:send(protocol.docs_query({
       query = normalized,
+      filetype = current_buffer_filetype(),
       session_id = ensure_session_id(),
     }))
     notify("docs query: " .. normalized)
@@ -664,6 +692,15 @@ function M.docs_query(query)
     stop_reconnect_timer()
     connect_docs_session(normalized, transport_or_err)
   end)
+end
+
+function M.docs_query_from_current_word()
+  local query = vim.trim(vim.fn.expand("<cword>"))
+  if query == "" then
+    notify("current word is empty", vim.log.levels.ERROR)
+    return
+  end
+  M.docs_query(query)
 end
 
 function M.docs_back()

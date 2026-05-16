@@ -39,6 +39,10 @@ end, {
   nargs = "*",
 })
 
+vim.api.nvim_create_user_command("ViewerDocsWord", function()
+  viewer.docs_query_from_current_word()
+end, {})
+
 vim.api.nvim_create_user_command("ViewerDocsBack", function()
   viewer.docs_back()
 end, {})
