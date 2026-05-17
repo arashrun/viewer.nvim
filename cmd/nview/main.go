@@ -21,27 +21,19 @@ type Message struct {
 }
 
 type clientState struct {
-	SessionID         string
-	Path              string
-	FileType          string
-	Mode              string
-	LineCount         int
-	Markdown          string
-	HTML              template.HTML
-	Resources         map[string]string
-	Cursor            map[string]any
-	Viewport          map[string]any
-	LastType          string
-	DocsQuery         string
-	DocsCount         int
-	DocsRoot          string
-	DocsCache         string
-	DocsPreviewTitle  string
-	DocsPreviewPath   string
-	DocsPreviewAnchor string
-	DocsPreviewID     string
-	DocsResults       []docsEntry
-	UpdatedAt         time.Time
+	SessionID string
+	Path      string
+	FileType  string
+	Mode      string
+	LineCount int
+	Markdown  string
+	HTML      template.HTML
+	Resources map[string]string
+	Cursor    map[string]any
+	Viewport  map[string]any
+	LastType  string
+	DocsQuery string
+	UpdatedAt time.Time
 }
 
 func sessionIDFromPayload(payload map[string]any) string {
@@ -55,27 +47,20 @@ func sessionIDFromPayload(payload map[string]any) string {
 }
 
 type ViewState struct {
-	SessionID         string         `json:"sessionId"`
-	Connected         bool           `json:"connected"`
-	FileType          string         `json:"filetype"`
-	Mode              string         `json:"mode,omitempty"`
-	Path              string         `json:"path"`
-	LineCount         int            `json:"lineCount"`
-	HeaderVisible     bool           `json:"headerVisible"`
-	Cursor            map[string]any `json:"cursor,omitempty"`
-	Viewport          map[string]any `json:"viewport,omitempty"`
-	Markdown          string         `json:"markdown"`
-	HTML              template.HTML  `json:"html"`
-	DocsQuery         string         `json:"docsQuery,omitempty"`
-	DocsCount         int            `json:"docsCount,omitempty"`
-	DocsRoot          string         `json:"docsRoot,omitempty"`
-	DocsCache         string         `json:"docsCache,omitempty"`
-	DocsPreviewTitle  string         `json:"docsPreviewTitle,omitempty"`
-	DocsPreviewPath   string         `json:"docsPreviewPath,omitempty"`
-	DocsPreviewAnchor string         `json:"docsPreviewAnchor,omitempty"`
-	DocsPreviewID     string         `json:"docsPreviewId,omitempty"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
-	LastType          string         `json:"lastType"`
+	SessionID     string         `json:"sessionId"`
+	Connected     bool           `json:"connected"`
+	FileType      string         `json:"filetype"`
+	Mode          string         `json:"mode,omitempty"`
+	Path          string         `json:"path"`
+	LineCount     int            `json:"lineCount"`
+	HeaderVisible bool           `json:"headerVisible"`
+	Cursor        map[string]any `json:"cursor,omitempty"`
+	Viewport      map[string]any `json:"viewport,omitempty"`
+	Markdown      string         `json:"markdown"`
+	HTML          template.HTML  `json:"html"`
+	DocsQuery     string         `json:"docsQuery,omitempty"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	LastType      string         `json:"lastType"`
 }
 
 type Hub struct {
@@ -168,13 +153,6 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.LastType = client.LastType
 	h.state.SessionID = client.SessionID
 	h.state.DocsQuery = client.DocsQuery
-	h.state.DocsCount = client.DocsCount
-	h.state.DocsRoot = client.DocsRoot
-	h.state.DocsCache = client.DocsCache
-	h.state.DocsPreviewTitle = client.DocsPreviewTitle
-	h.state.DocsPreviewPath = client.DocsPreviewPath
-	h.state.DocsPreviewAnchor = client.DocsPreviewAnchor
-	h.state.DocsPreviewID = client.DocsPreviewID
 	h.state.UpdatedAt = time.Now()
 }
 
@@ -214,13 +192,6 @@ func (h *Hub) removeClient(sessionID string) bool {
 		h.state.LastType = "disconnect"
 		h.state.SessionID = ""
 		h.state.DocsQuery = ""
-		h.state.DocsCount = 0
-		h.state.DocsRoot = ""
-		h.state.DocsCache = ""
-		h.state.DocsPreviewTitle = ""
-		h.state.DocsPreviewPath = ""
-		h.state.DocsPreviewAnchor = ""
-		h.state.DocsPreviewID = ""
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
@@ -281,17 +252,13 @@ func renderAppHTML(state ViewState, headerVisible bool) string {
 func main() {
 	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
 	statePath := flag.String("state-file", defaultStatePath(), "window state file")
-	docsRoot := flag.String("docs-root", defaultDocsRoot(), "offline docs root directory")
-	docsCacheDir := flag.String("docs-cache-dir", "", "offline docs cache directory (defaults to <docs-root>/cache)")
+	zealCmd := flag.String("zeal-cmd", "", "Zeal executable path")
 	autoHideMS := flag.Int("auto-hide-ms", 3000, "auto hide interval in milliseconds")
 	flag.Parse()
-	if *docsCacheDir == "" {
-		*docsCacheDir = defaultDocsCacheDir(*docsRoot)
-	}
 
 	hub := NewHub()
 	globalHub = hub
-	docs := NewDocsService(*docsRoot, *docsCacheDir)
+	docs := NewDocsService(*zealCmd)
 	window := NewWindowController("nview", "nview")
 	window.SetStateSaver(func(state persistedWindowState) error {
 		return saveWindowState(*statePath, state)
@@ -316,8 +283,7 @@ func main() {
 	}()
 
 	log.Printf("nview tcp listening on %s", *listenAddr)
-	log.Printf("nview docs root: %s", *docsRoot)
-	log.Printf("nview docs cache: %s", *docsCacheDir)
+	log.Printf("nview zeal cmd: %s", docs.zealCmd)
 	log.Printf("nview desktop UI starting")
 
 	app := NewDesktopApp(hub, window, docs)
@@ -459,14 +425,6 @@ func updatePreview(hub *Hub, sessionID string, msg Message) {
 		client.Mode = "markdown"
 		client.FileType = "markdown"
 		client.DocsQuery = ""
-		client.DocsCount = 0
-		client.DocsRoot = ""
-		client.DocsCache = ""
-		client.DocsPreviewTitle = ""
-		client.DocsPreviewPath = ""
-		client.DocsPreviewAnchor = ""
-		client.DocsPreviewID = ""
-		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
 		}
@@ -502,14 +460,6 @@ func updateViewport(hub *Hub, window *WindowController, sessionID string, msg Me
 		client.LastType = msg.Type
 		client.Mode = "markdown"
 		client.DocsQuery = ""
-		client.DocsCount = 0
-		client.DocsRoot = ""
-		client.DocsCache = ""
-		client.DocsPreviewTitle = ""
-		client.DocsPreviewPath = ""
-		client.DocsPreviewAnchor = ""
-		client.DocsPreviewID = ""
-		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
 		}
