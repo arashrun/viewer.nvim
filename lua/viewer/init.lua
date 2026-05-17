@@ -692,6 +692,7 @@ function M.docs_query(query)
   end
 
   state.last_docs_query = normalized
+  local filetype = current_buffer_filetype()
   if state.active and state.transport then
     state.session_kind = "docs"
     stop_preview_timer()
@@ -701,7 +702,7 @@ function M.docs_query(query)
     end)
     state.transport:send(protocol.docs_query({
       query = normalized,
-      filetype = current_buffer_filetype(),
+      filetype = filetype,
       session_id = ensure_session_id(),
     }))
     notify("docs query: " .. normalized)

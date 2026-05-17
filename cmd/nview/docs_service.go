@@ -31,19 +31,28 @@ func NewDocsService(zealCmd string) *DocsService {
 	return &DocsService{zealCmd: zealCmd}
 }
 
-func (s *DocsService) Query(sessionID, query string) {
-	_ = sessionID
+func (s *DocsService) Query(sessionID, filetype, query string) {
 	query = strings.TrimSpace(query)
 	s.mu.Lock()
 	s.lastQuery = query
 	s.mu.Unlock()
 
-	launchErr := s.launchZeal(query)
-	html := renderZealStatusHTML(query, s.zealCmd, launchErr)
 	hub := globalHub
 	if hub == nil {
 		return
 	}
+
+	currentFileType := strings.TrimSpace(filetype)
+	hub.mu.Lock()
+	if client := hub.clientsState[sessionID]; client != nil {
+		if currentFileType == "" {
+			currentFileType = client.DocsFileType
+		}
+	}
+	hub.mu.Unlock()
+
+	launchErr := s.launchDocs(currentFileType, query)
+	html := renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.SessionID = sessionID
 		client.Mode = "docs"
@@ -55,6 +64,7 @@ func (s *DocsService) Query(sessionID, query string) {
 		client.Cursor = nil
 		client.Viewport = nil
 		client.DocsQuery = query
+		client.DocsFileType = currentFileType
 	})
 }
 
@@ -65,13 +75,15 @@ func (s *DocsService) Open(sessionID, resultID string) {
 		return
 	}
 	query := ""
+	currentFileType := ""
 	hub.mu.Lock()
 	if client := hub.clientsState[sessionID]; client != nil {
 		query = client.DocsQuery
+		currentFileType = client.DocsFileType
 	}
 	hub.mu.Unlock()
-	launchErr := s.launchZeal(query)
-	html := renderZealStatusHTML(query, s.zealCmd, launchErr)
+	launchErr := s.launchDocs(currentFileType, query)
+	html := renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.SessionID = sessionID
 		client.Mode = "docs"
@@ -83,6 +95,7 @@ func (s *DocsService) Open(sessionID, resultID string) {
 		client.Cursor = nil
 		client.Viewport = nil
 		client.DocsQuery = query
+		client.DocsFileType = currentFileType
 	})
 }
 
@@ -90,22 +103,29 @@ func (s *DocsService) Back(sessionID string) {
 	_ = sessionID
 }
 
-func (s *DocsService) launchZeal(query string) error {
-	if err := s.openZealURL(query); err == nil {
+func (s *DocsService) launchDocs(filetype, query string) error {
+	if err := s.launchDashPluginURL(filetype, query); err == nil {
 		return nil
 	}
-	return s.launchZealCommand(query)
+	if err := s.launchDashURL(filetype, query); err == nil {
+		return nil
+	}
+	return s.launchZealCommand(filetype, query)
 }
 
-func (s *DocsService) openZealURL(query string) error {
-	scheme := "dash"
-	escaped := url.QueryEscape(strings.TrimSpace(query))
-	target := scheme + "://docset:" + escaped
+func (s *DocsService) launchDashPluginURL(filetype, query string) error {
+	target := buildDashPluginURL(filetype, query)
 	cmd := openURLCommand(target)
 	return cmd.Start()
 }
 
-func (s *DocsService) launchZealCommand(query string) error {
+func (s *DocsService) launchDashURL(filetype, query string) error {
+	target := buildDashURL(filetype, query)
+	cmd := openURLCommand(target)
+	return cmd.Start()
+}
+
+func (s *DocsService) launchZealCommand(filetype, query string) error {
 	exe := strings.TrimSpace(s.zealCmd)
 	if exe == "" {
 		exe = defaultZealCommand()
@@ -114,11 +134,50 @@ func (s *DocsService) launchZealCommand(query string) error {
 		return err
 	}
 	args := []string{}
-	if query != "" {
-		args = append(args, query)
+	normalized := normalizeDashQuery(filetype, query)
+	if normalized != "" {
+		args = append(args, normalized)
 	}
 	cmd := exec.Command(exe, args...)
 	return cmd.Start()
+}
+
+func buildDashPluginURL(filetype, query string) string {
+	return "dash-plugin://keys=" + url.QueryEscape(resolveDashKeys(filetype)) + "&query=" + url.QueryEscape(query)
+}
+
+func buildDashURL(filetype, query string) string {
+	return "dash://" + url.QueryEscape(resolveDashKeys(filetype)) + ":" + url.QueryEscape(query)
+}
+
+func resolveDashKeys(filetype string) string {
+	ft := strings.ToLower(strings.TrimSpace(filetype))
+	switch ft {
+	case "go":
+		return "go"
+	case "rust":
+		return "rust"
+	case "python":
+		return "python"
+	case "lua":
+		return "lua"
+	case "javascript", "javascriptreact", "typescript", "typescriptreact":
+		return "javascript"
+	case "c", "cpp", "objc", "objcpp":
+		return "c"
+	case "markdown", "md":
+		return "markdown"
+	default:
+		return ft
+	}
+}
+
+func normalizeDashQuery(filetype, query string) string {
+	keys := resolveDashKeys(filetype)
+	if keys == "" || query == "" {
+		return query
+	}
+	return keys + ":" + query
 }
 
 func openURLCommand(target string) *exec.Cmd {
@@ -132,13 +191,15 @@ func openURLCommand(target string) *exec.Cmd {
 	}
 }
 
-func renderZealStatusHTML(query, zealCmd string, launchErr error) template.HTML {
+func renderZealStatusHTML(filetype, query, zealCmd string, launchErr error) template.HTML {
 	var buf bytes.Buffer
 	buf.WriteString(`<div class="docs-shell docs-shell-empty">`)
 	buf.WriteString(`<aside class="docs-sidebar">`)
 	buf.WriteString(`<div class="docs-sidebar-header">`)
 	buf.WriteString(`<div class="docs-title">Offline docs</div>`)
-	buf.WriteString(`<div class="docs-meta">Zeal</div>`)
+	buf.WriteString(`<div class="docs-meta">`)
+	buf.WriteString(template.HTMLEscapeString(resolveDashKeys(filetype)))
+	buf.WriteString(`</div>`)
 	buf.WriteString(`</div>`)
 	buf.WriteString(`<div class="docs-empty">`)
 	if query == "" {
@@ -158,7 +219,7 @@ func renderZealStatusHTML(query, zealCmd string, launchErr error) template.HTML 
 		buf.WriteString(`</code>: `)
 		buf.WriteString(template.HTMLEscapeString(fmt.Sprintf("%v", launchErr)))
 	} else {
-		buf.WriteString(`Zeal has been started for this query.`)
+		buf.WriteString(`Launched via Dash/Zeal URL handling with command fallback.`)
 	}
 	buf.WriteString(`</div>`)
 	buf.WriteString(`</section></div>`)

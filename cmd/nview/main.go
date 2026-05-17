@@ -21,19 +21,20 @@ type Message struct {
 }
 
 type clientState struct {
-	SessionID string
-	Path      string
-	FileType  string
-	Mode      string
-	LineCount int
-	Markdown  string
-	HTML      template.HTML
-	Resources map[string]string
-	Cursor    map[string]any
-	Viewport  map[string]any
-	LastType  string
-	DocsQuery string
-	UpdatedAt time.Time
+	SessionID    string
+	Path         string
+	FileType     string
+	Mode         string
+	LineCount    int
+	Markdown     string
+	HTML         template.HTML
+	Resources    map[string]string
+	Cursor       map[string]any
+	Viewport     map[string]any
+	LastType     string
+	DocsQuery    string
+	DocsFileType string
+	UpdatedAt    time.Time
 }
 
 func sessionIDFromPayload(payload map[string]any) string {
@@ -59,6 +60,7 @@ type ViewState struct {
 	Markdown      string         `json:"markdown"`
 	HTML          template.HTML  `json:"html"`
 	DocsQuery     string         `json:"docsQuery,omitempty"`
+	DocsFileType  string         `json:"docsFileType,omitempty"`
 	UpdatedAt     time.Time      `json:"updatedAt"`
 	LastType      string         `json:"lastType"`
 }
@@ -153,6 +155,7 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.LastType = client.LastType
 	h.state.SessionID = client.SessionID
 	h.state.DocsQuery = client.DocsQuery
+	h.state.DocsFileType = client.DocsFileType
 	h.state.UpdatedAt = time.Now()
 }
 
@@ -192,6 +195,7 @@ func (h *Hub) removeClient(sessionID string) bool {
 		h.state.LastType = "disconnect"
 		h.state.SessionID = ""
 		h.state.DocsQuery = ""
+		h.state.DocsFileType = ""
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
@@ -374,10 +378,18 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, docs *DocsSer
 		case "docs_query":
 			if docs != nil {
 				query := ""
+				filetype := ""
 				if v, ok := msg.Payload["query"].(string); ok {
 					query = v
 				}
-				docs.Query(sessionID, query)
+				if v, ok := msg.Payload["filetype"].(string); ok {
+					filetype = v
+				}
+				hub.upsertClient(sessionID, func(client *clientState) {
+					client.DocsFileType = filetype
+					client.DocsQuery = query
+				})
+				docs.Query(sessionID, filetype, query)
 			}
 		case "docs_open":
 			if docs != nil {
