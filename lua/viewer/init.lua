@@ -237,27 +237,86 @@ local function endpoint_equals(a, b)
     and a.port == b.port
 end
 
+local function normalize_endpoint(endpoint)
+  if type(endpoint) ~= "table" then
+    return nil
+  end
+
+  local host = tostring(endpoint.host or "")
+  local port = tonumber(endpoint.port)
+  if host == "" or not port then
+    return nil
+  end
+
+  return {
+    host = host,
+    port = port,
+  }
+end
+
+local function endpoint_key(endpoint)
+  if not endpoint then
+    return nil
+  end
+  return tostring(endpoint.host) .. ":" .. tostring(endpoint.port)
+end
+
+local function remote_endpoints()
+  local endpoints = {}
+  local seen = {}
+  local configured = state.config.remote_endpoints
+
+  if type(configured) == "table" then
+    for _, endpoint in ipairs(configured) do
+      local normalized = normalize_endpoint(endpoint)
+      local key = endpoint_key(normalized)
+      if normalized and key and not seen[key] then
+        seen[key] = true
+        endpoints[#endpoints + 1] = normalized
+      end
+    end
+  end
+
+  if #endpoints == 0 then
+    local legacy = normalize_endpoint(state.config.remote_endpoint)
+    local legacy_key = endpoint_key(legacy)
+    if legacy and legacy_key and not seen[legacy_key] then
+      endpoints[#endpoints + 1] = legacy
+    end
+  end
+
+  return endpoints
+end
+
 local function has_custom_remote_endpoint()
+  local configured = state.config.remote_endpoints
+  if type(configured) == "table" and #configured > 0 then
+    return true
+  end
+
   return not endpoint_equals(state.config.remote_endpoint, config.defaults.remote_endpoint)
 end
 
 local function endpoint_order()
-  local remote = state.config.remote_endpoint
+  local remotes = remote_endpoints()
   local local_ep = state.config.local_endpoint
   local is_ssh = vim.env.SSH_CONNECTION or vim.env.SSH_CLIENT or vim.env.SSH_TTY
   local custom_remote = has_custom_remote_endpoint()
 
   if custom_remote or is_ssh then
-    return {
-      { endpoint = remote, spawnable = false },
-      { endpoint = local_ep, spawnable = false },
-    }
+    local ordered = {}
+    for _, endpoint in ipairs(remotes) do
+      ordered[#ordered + 1] = { endpoint = endpoint, spawnable = false }
+    end
+    ordered[#ordered + 1] = { endpoint = local_ep, spawnable = false }
+    return ordered
   end
 
-  return {
-    { endpoint = local_ep, spawnable = true },
-    { endpoint = remote, spawnable = false },
-  }
+  local ordered = { { endpoint = local_ep, spawnable = true } }
+  for _, endpoint in ipairs(remotes) do
+    ordered[#ordered + 1] = { endpoint = endpoint, spawnable = false }
+  end
+  return ordered
 end
 
 local function resolve_nview_command()

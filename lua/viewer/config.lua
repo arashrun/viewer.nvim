@@ -11,6 +11,7 @@ M.defaults = {
     host = "127.0.0.1",
     port = 7357,
   },
+  remote_endpoints = {},
   remote_endpoint = {
     host = "127.0.0.1",
     port = 7357,

@@ -1,3 +1,15 @@
+## viewer.nvim
+
+`viewer.nvim` 是一个配套 `nview` 桌面端使用的 Neovim 插件。
+
+它的目标不是替代 Neovim，而是补足终端在 HTML、图片和离线文档浏览上的渲染能力，让你在保持编辑器工作流不变的前提下，获得一个独立的预览窗口。
+
+### 这个项目解决什么问题
+
+- Markdown 预览时，右侧独立窗口可以更稳定地渲染 HTML、图片和样式。
+- 离线 API 文档可以直接在本地搜索和打开，不需要切到浏览器。
+- 本地和远程 `nview` 都能用，适合单机开发和 SSH 远程开发两种场景。
+
 ## 编译与安装
 
 ### 依赖
@@ -58,7 +70,10 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
       probe_timeout_ms = 1000,
       auto_start = false,
       local_endpoint = { host = "127.0.0.1", port = 7357 },
-      remote_endpoint = { host = "127.0.0.1", port = 7357 },
+      remote_endpoints = {
+        { host = "127.0.0.1", port = 7357 },
+        { host = "192.168.1.10", port = 7357 },
+      },
     })
   end,
 }
@@ -123,7 +138,10 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
 ```lua
 require("viewer").setup({
   local_endpoint = { host = "127.0.0.1", port = 7357 },
-  remote_endpoint = { host = "192.168.1.10", port = 7357 },
+  remote_endpoints = {
+    { host = "192.168.1.10", port = 7357 },
+    { host = "10.0.0.8", port = 7357 },
+  },
   probe_timeout_ms = 1000,
   auto_start = false,
   keymaps = {
@@ -134,6 +152,10 @@ require("viewer").setup({
   },
 })
 ```
+
+`remote_endpoints` 会按顺序尝试多个远程地址。
+
+如果你还在使用旧配置，`remote_endpoint` 仍然可用，但优先推荐迁移到 `remote_endpoints`。
 
 如果不想要默认映射:
 
