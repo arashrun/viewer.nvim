@@ -20,7 +20,12 @@ M.defaults = {
   auto_hide_ms = 3000,
   auto_start = false,
   nview_cmd = nil,
-  docs_lookup_keymap = "<leader>vd",
+  keymaps = {
+    preview = "<leader>vp",
+    toggle = "<leader>vt",
+    interval = "<leader>vi",
+    docs = "<leader>vd",
+  },
 }
 
 function M.merge(user_config)

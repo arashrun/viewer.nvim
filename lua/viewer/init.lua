@@ -17,7 +17,7 @@ local state = {
   reconnect_timer = nil,
   reconnecting = false,
   spawning = false,
-  docs_lookup_keymap = nil,
+  mapped_keys = {},
 }
 
 local reconnect_delay_ms = 1000
@@ -185,24 +185,49 @@ local function current_buffer_filetype()
   return vim.bo[vim.api.nvim_get_current_buf()].filetype
 end
 
-local function set_docs_lookup_keymap(keymap)
-  if state.docs_lookup_keymap then
-    pcall(vim.keymap.del, "n", state.docs_lookup_keymap)
-    state.docs_lookup_keymap = nil
-  end
-
-  if keymap == false then
+local function clear_mapped_key(key)
+  local mapped = state.mapped_keys[key]
+  if not mapped then
     return
   end
+  pcall(vim.keymap.del, "n", mapped)
+  state.mapped_keys[key] = nil
+end
 
-  local effective_keymap = keymap or "<leader>vd"
-  vim.keymap.set("n", effective_keymap, function()
-    M.docs_query_from_current_word()
-  end, {
-    desc = "Lookup offline docs for current word",
+local function set_mapped_key(key, lhs, rhs, desc)
+  clear_mapped_key(key)
+  if lhs == false then
+    return
+  end
+  local effective_lhs = lhs
+  if type(effective_lhs) ~= "string" or effective_lhs == "" then
+    return
+  end
+  vim.keymap.set("n", effective_lhs, rhs, {
+    desc = desc,
     silent = true,
   })
-  state.docs_lookup_keymap = effective_keymap
+  state.mapped_keys[key] = effective_lhs
+end
+
+local function setup_keymaps()
+  local keymaps = state.config.keymaps or {}
+  set_mapped_key("preview", keymaps.preview or "<leader>vp", function()
+    M.preview()
+  end, "Start markdown preview")
+  set_mapped_key("toggle", keymaps.toggle or "<leader>vt", function()
+    M.toggle()
+  end, "Toggle preview")
+  set_mapped_key("interval", keymaps.interval or "<leader>vi", function()
+    vim.ui.input({ prompt = "Auto hide interval (ms): " }, function(value)
+      if value and value ~= "" then
+        M.set_interval(value)
+      end
+    end)
+  end, "Set auto hide interval")
+  set_mapped_key("docs", keymaps.docs or "<leader>vd", function()
+    M.docs_query_current_word()
+  end, "Lookup offline docs for current word")
 end
 
 local function endpoint_equals(a, b)
@@ -619,7 +644,7 @@ end
 function M.setup(user_config)
   state.config = config.merge(user_config)
   math.randomseed(vim.loop.hrtime() % 2147483647)
-  set_docs_lookup_keymap(state.config.docs_lookup_keymap)
+  setup_keymaps()
 
   if state.config.auto_start then
     vim.schedule(function()
@@ -694,30 +719,13 @@ function M.docs_query(query)
   end)
 end
 
-function M.docs_query_from_current_word()
+function M.docs_query_current_word()
   local query = vim.trim(vim.fn.expand("<cword>"))
   if query == "" then
     notify("current word is empty", vim.log.levels.ERROR)
     return
   end
   M.docs_query(query)
-end
-
-function M.docs_back()
-  if not state.active or not state.transport then
-    return
-  end
-  state.transport:send(protocol.docs_back())
-end
-
-function M.docs_open(id)
-  if not state.active or not state.transport then
-    return
-  end
-  if not id or id == "" then
-    return
-  end
-  state.transport:send(protocol.docs_open({ id = id, session_id = ensure_session_id() }))
 end
 
 function M.toggle()
