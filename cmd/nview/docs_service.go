@@ -31,7 +31,7 @@ func NewDocsService(zealCmd string) *DocsService {
 	return &DocsService{zealCmd: zealCmd}
 }
 
-func (s *DocsService) Query(sessionID, filetype, query string) {
+func (s *DocsService) Query(sessionID, filetype, query string) error {
 	query = strings.TrimSpace(query)
 	s.mu.Lock()
 	s.lastQuery = query
@@ -39,7 +39,7 @@ func (s *DocsService) Query(sessionID, filetype, query string) {
 
 	hub := globalHub
 	if hub == nil {
-		return
+		return nil
 	}
 
 	currentFileType := strings.TrimSpace(filetype)
@@ -52,7 +52,6 @@ func (s *DocsService) Query(sessionID, filetype, query string) {
 	hub.mu.Unlock()
 
 	launchErr := s.launchDocs(currentFileType, query)
-	html := renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.SessionID = sessionID
 		client.Mode = "docs"
@@ -60,19 +59,24 @@ func (s *DocsService) Query(sessionID, filetype, query string) {
 		client.Path = query
 		client.LineCount = 0
 		client.Markdown = ""
-		client.HTML = html
+		if launchErr != nil {
+			client.HTML = renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
+		} else {
+			client.HTML = template.HTML("")
+		}
 		client.Cursor = nil
 		client.Viewport = nil
 		client.DocsQuery = query
 		client.DocsFileType = currentFileType
 	})
+	return launchErr
 }
 
-func (s *DocsService) Open(sessionID, resultID string) {
+func (s *DocsService) Open(sessionID, resultID string) error {
 	_ = resultID
 	hub := globalHub
 	if hub == nil {
-		return
+		return nil
 	}
 	query := ""
 	currentFileType := ""
@@ -83,7 +87,6 @@ func (s *DocsService) Open(sessionID, resultID string) {
 	}
 	hub.mu.Unlock()
 	launchErr := s.launchDocs(currentFileType, query)
-	html := renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.SessionID = sessionID
 		client.Mode = "docs"
@@ -91,12 +94,17 @@ func (s *DocsService) Open(sessionID, resultID string) {
 		client.Path = query
 		client.LineCount = 0
 		client.Markdown = ""
-		client.HTML = html
+		if launchErr != nil {
+			client.HTML = renderZealStatusHTML(currentFileType, query, s.zealCmd, launchErr)
+		} else {
+			client.HTML = template.HTML("")
+		}
 		client.Cursor = nil
 		client.Viewport = nil
 		client.DocsQuery = query
 		client.DocsFileType = currentFileType
 	})
+	return launchErr
 }
 
 func (s *DocsService) Back(sessionID string) {
@@ -163,8 +171,10 @@ func resolveDashKeys(filetype string) string {
 		return "lua"
 	case "javascript", "javascriptreact", "typescript", "typescriptreact":
 		return "javascript"
-	case "c", "cpp", "objc", "objcpp":
+	case "c":
 		return "c"
+	case "cpp", "c++", "cc", "cxx", "objc", "objcpp":
+		return "cpp"
 	case "markdown", "md":
 		return "markdown"
 	default:
@@ -178,6 +188,14 @@ func normalizeDashQuery(filetype, query string) string {
 		return query
 	}
 	return keys + ":" + query
+}
+
+func docsDisplayName(filetype string) string {
+	keys := resolveDashKeys(filetype)
+	if keys == "" {
+		return "docs"
+	}
+	return keys
 }
 
 func openURLCommand(target string) *exec.Cmd {
@@ -198,7 +216,7 @@ func renderZealStatusHTML(filetype, query, zealCmd string, launchErr error) temp
 	buf.WriteString(`<div class="docs-sidebar-header">`)
 	buf.WriteString(`<div class="docs-title">Offline docs</div>`)
 	buf.WriteString(`<div class="docs-meta">`)
-	buf.WriteString(template.HTMLEscapeString(resolveDashKeys(filetype)))
+	buf.WriteString(template.HTMLEscapeString(docsDisplayName(filetype)))
 	buf.WriteString(`</div>`)
 	buf.WriteString(`</div>`)
 	buf.WriteString(`<div class="docs-empty">`)

@@ -356,7 +356,13 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, docs *DocsSer
 		if sessionIDPayload != "" {
 			window.ApplySession(sessionIDPayload)
 		}
-		_ = window.Show()
+		shouldShowWindow := msg.Type == "preview" || msg.Type == "viewport"
+		if msg.Type == "docs_query" || msg.Type == "docs_open" || msg.Type == "docs_back" {
+			shouldShowWindow = false
+		}
+		if shouldShowWindow {
+			_ = window.Show()
+		}
 		switch msg.Type {
 		case "hello":
 			hub.upsertClient(sessionID, func(client *clientState) {
@@ -389,12 +395,16 @@ func handleConn(conn net.Conn, hub *Hub, window *WindowController, docs *DocsSer
 					client.DocsFileType = filetype
 					client.DocsQuery = query
 				})
-				docs.Query(sessionID, filetype, query)
+				if err := docs.Query(sessionID, filetype, query); err != nil {
+					_ = window.Show()
+				}
 			}
 		case "docs_open":
 			if docs != nil {
 				if v, ok := msg.Payload["id"].(string); ok {
-					docs.Open(sessionID, v)
+					if err := docs.Open(sessionID, v); err != nil {
+						_ = window.Show()
+					}
 				}
 			}
 		case "docs_back":

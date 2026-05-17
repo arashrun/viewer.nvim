@@ -67,12 +67,16 @@ func attachNativeWindow(window *WindowController, w webview.WebView, hub *Hub, d
 				filetype = client.DocsFileType
 			}
 			hub.mu.Unlock()
-			docs.Query(sessionID, filetype, query)
+			if err := docs.Query(sessionID, filetype, query); err != nil {
+				_ = window.Show()
+			}
 		}
 	})
 	_ = w.Bind("docsOpen", func(id string) {
 		if docs != nil {
-			docs.Open(hub.clientKeyForSessionID(window.activeSession), id)
+			if err := docs.Open(hub.clientKeyForSessionID(window.activeSession), id); err != nil {
+				_ = window.Show()
+			}
 		}
 	})
 	_ = w.Bind("docsBack", func() {
