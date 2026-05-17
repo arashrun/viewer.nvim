@@ -185,25 +185,6 @@ local function current_buffer_filetype()
   return vim.bo[vim.api.nvim_get_current_buf()].filetype
 end
 
-local function docs_filetype_for_buffer(bufnr)
-  local ft = vim.bo[bufnr].filetype
-  if ft ~= "c" then
-    return ft
-  end
-
-  local path = vim.api.nvim_buf_get_name(bufnr)
-  if path == "" then
-    return ft
-  end
-
-  local ext = vim.fn.fnamemodify(path, ":e"):lower()
-  if ext == "cpp" or ext == "cxx" or ext == "cc" or ext == "hpp" or ext == "hh" or ext == "hxx" then
-    return "cpp"
-  end
-
-  return ft
-end
-
 local function clear_mapped_key(key)
   local mapped = state.mapped_keys[key]
   if not mapped then
@@ -711,8 +692,7 @@ function M.docs_query(query)
   end
 
   state.last_docs_query = normalized
-  local bufnr = vim.api.nvim_get_current_buf()
-  local filetype = docs_filetype_for_buffer(bufnr)
+  local filetype = current_buffer_filetype()
   if state.active and state.transport then
     state.session_kind = "docs"
     stop_preview_timer()

@@ -174,7 +174,7 @@ func resolveDashKeys(filetype string) string {
 	case "c":
 		return "c"
 	case "cpp", "c++", "cc", "cxx", "objc", "objcpp":
-		return "cpp"
+		return "cpp,c++"
 	case "markdown", "md":
 		return "markdown"
 	default:
