@@ -64,17 +64,27 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
 }
 ```
 
-如果只想在 markdown 文件中加载:
+如果希望在任意文件里按快捷键再加载插件, 推荐这样写:
 
 ```lua
 {
   dir = "/home/ccls/github/viewer.nvim",
   name = "viewer.nvim",
-  ft = { "markdown" },
+  keys = {
+    { "<leader>vp", "<cmd>ViewerPreview<cr>", desc = "viewer preview" },
+    { "<leader>vt", "<cmd>ViewerToggle<cr>", desc = "viewer toggle" },
+    { "<leader>vd", "<cmd>ViewerDocs<cr>", desc = "viewer docs" },
+  },
   config = function()
     require("viewer").setup({
       probe_timeout_ms = 1000,
       auto_start = false,
+      keymaps = {
+        preview = false,
+        toggle = false,
+        interval = false,
+        docs = false,
+      },
     })
   end,
 }
