@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"net/url"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -90,6 +91,21 @@ func (s *DocsService) Back(sessionID string) {
 }
 
 func (s *DocsService) launchZeal(query string) error {
+	if err := s.openZealURL(query); err == nil {
+		return nil
+	}
+	return s.launchZealCommand(query)
+}
+
+func (s *DocsService) openZealURL(query string) error {
+	scheme := "dash"
+	escaped := url.QueryEscape(strings.TrimSpace(query))
+	target := scheme + "://docset:" + escaped
+	cmd := openURLCommand(target)
+	return cmd.Start()
+}
+
+func (s *DocsService) launchZealCommand(query string) error {
 	exe := strings.TrimSpace(s.zealCmd)
 	if exe == "" {
 		exe = defaultZealCommand()
@@ -103,6 +119,17 @@ func (s *DocsService) launchZeal(query string) error {
 	}
 	cmd := exec.Command(exe, args...)
 	return cmd.Start()
+}
+
+func openURLCommand(target string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+	case "darwin":
+		return exec.Command("open", target)
+	default:
+		return exec.Command("xdg-open", target)
+	}
 }
 
 func renderZealStatusHTML(query, zealCmd string, launchErr error) template.HTML {
