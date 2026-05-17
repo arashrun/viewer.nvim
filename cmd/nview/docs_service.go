@@ -467,14 +467,16 @@ func renderDocsResultsHTML(root, query string, results []docsEntry, docsetCount 
 		buf.WriteString(template.HTMLEscapeString(entry.Name))
 		buf.WriteString(`</div>`)
 		buf.WriteString(`<div class="docs-result-meta">`)
-		buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
-		if entry.Kind != "" {
-			buf.WriteString(` · `)
-			buf.WriteString(template.HTMLEscapeString(entry.Kind))
+		if entry.DocsetName != "" {
+			buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
 		}
 		if entry.RelativePath != "" {
 			buf.WriteString(` · `)
 			buf.WriteString(template.HTMLEscapeString(docEntryDisplayPath(entry)))
+		}
+		if entry.Kind != "" {
+			buf.WriteString(` · `)
+			buf.WriteString(template.HTMLEscapeString(entry.Kind))
 		}
 		buf.WriteString(`</div></button>`)
 	}
@@ -491,7 +493,7 @@ func renderDocsPreviewHTML(query string, entry docsEntry, rendered template.HTML
 	buf.WriteString(`<div class="docs-sidebar-header">`)
 	buf.WriteString(`<button type="button" class="docs-back" data-doc-back="true">Back</button>`)
 	buf.WriteString(`<div class="docs-title">`)
-	buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
+	buf.WriteString(`Offline docs`)
 	buf.WriteString(`</div>`)
 	buf.WriteString(`<div class="docs-meta">`)
 	buf.WriteString(template.HTMLEscapeString(query))
@@ -505,14 +507,16 @@ func renderDocsPreviewHTML(query string, entry docsEntry, rendered template.HTML
 	buf.WriteString(template.HTMLEscapeString(entry.Name))
 	buf.WriteString(`</div>`)
 	buf.WriteString(`<div class="docs-result-meta">`)
-	buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
-	if entry.Kind != "" {
-		buf.WriteString(` · `)
-		buf.WriteString(template.HTMLEscapeString(entry.Kind))
+	if entry.DocsetName != "" {
+		buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
 	}
 	if entry.RelativePath != "" {
 		buf.WriteString(` · `)
 		buf.WriteString(template.HTMLEscapeString(docEntryDisplayPath(entry)))
+	}
+	if entry.Kind != "" {
+		buf.WriteString(` · `)
+		buf.WriteString(template.HTMLEscapeString(entry.Kind))
 	}
 	buf.WriteString(`</div></div>`)
 	buf.WriteString(`</aside>`)

@@ -924,7 +924,7 @@ const pageHTML = `<!doctype html>
   </header>
   <main>
     <section class="card">
-      <h2>Preview</h2>
+      <h2>{{if eq .Mode "docs"}}Offline docs{{else}}Preview{{end}}</h2>
       <div class="content">
         <article id="preview">{{if .HTML}}{{.HTML}}{{else}}<div class="placeholder">Open a markdown buffer in nvim and run :ViewerPreview</div>{{end}}</article>
       </div>
