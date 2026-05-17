@@ -109,7 +109,7 @@ func (s *DocsService) Query(sessionID, query string) {
 	query = strings.TrimSpace(query)
 	index := s.ensureIndex()
 	results := searchDocs(index, query, 100)
-	html := renderDocsResultsHTML(s.root, query, results, len(index.Docsets))
+	html := renderDocsResultsHTML(s.root, query, results, len(index.Docsets), "")
 	hub := globalHub
 	if hub == nil {
 		return
@@ -130,6 +130,7 @@ func (s *DocsService) Query(sessionID, query string) {
 		client.DocsPreviewTitle = ""
 		client.DocsPreviewPath = ""
 		client.DocsPreviewAnchor = ""
+		client.DocsPreviewID = ""
 		client.DocsCount = len(results)
 		client.DocsRoot = s.root
 		client.DocsCache = s.cacheDir
@@ -155,12 +156,13 @@ func (s *DocsService) Open(sessionID, resultID string) {
 			client.SessionID = logicalSessionID
 			client.Mode = "docs"
 			client.FileType = "docs"
-			client.HTML = renderDocsResultsHTML(s.root, query, nil, len(index.Docsets))
+			client.HTML = renderDocsResultsHTML(s.root, query, nil, len(index.Docsets), "")
 			client.DocsQuery = query
 			client.DocsCount = 0
 			client.DocsPreviewTitle = ""
 			client.DocsPreviewPath = ""
 			client.DocsPreviewAnchor = ""
+			client.DocsPreviewID = ""
 		})
 		return
 	}
@@ -190,6 +192,7 @@ func (s *DocsService) Open(sessionID, resultID string) {
 		client.DocsPreviewTitle = entry.Name
 		client.DocsPreviewPath = entry.RelativePath
 		client.DocsPreviewAnchor = entry.Fragment
+		client.DocsPreviewID = entry.ID
 		client.DocsCount = len(client.DocsResults)
 		client.DocsRoot = s.root
 		client.DocsCache = s.cacheDir
@@ -212,7 +215,7 @@ func (s *DocsService) Back(sessionID string) {
 	query := client.DocsQuery
 	results := append([]docsEntry(nil), client.DocsResults...)
 	hub.mu.Unlock()
-	html := renderDocsResultsHTML(s.root, query, results, len(s.ensureIndex().Docsets))
+	html := renderDocsResultsHTML(s.root, query, results, len(s.ensureIndex().Docsets), "")
 	hub.upsertClient(sessionID, func(client *clientState) {
 		client.SessionID = logicalSessionID
 		client.Mode = "docs"
@@ -229,6 +232,7 @@ func (s *DocsService) Back(sessionID string) {
 		client.DocsPreviewTitle = ""
 		client.DocsPreviewPath = ""
 		client.DocsPreviewAnchor = ""
+		client.DocsPreviewID = ""
 	})
 }
 
@@ -427,27 +431,36 @@ func renderDocsEmptyHTML(query string, docsetCount int) template.HTML {
 </div>`, template.HTMLEscapeString(query)))
 }
 
-func renderDocsResultsHTML(root, query string, results []docsEntry, docsetCount int) template.HTML {
+func renderDocsResultsHTML(root, query string, results []docsEntry, docsetCount int, selectedID string) template.HTML {
 	var buf bytes.Buffer
 	buf.WriteString(`<div class="docs-shell docs-shell-results">`)
-	buf.WriteString(`<div class="docs-toolbar">`)
+	buf.WriteString(`<aside class="docs-sidebar">`)
+	buf.WriteString(`<div class="docs-sidebar-header">`)
 	buf.WriteString(`<div class="docs-title">Offline docs</div>`)
+	buf.WriteString(`<div class="docs-meta">`)
+	buf.WriteString(template.HTMLEscapeString(fmt.Sprintf("%d result(s) from %d docset(s)", len(results), docsetCount)))
+	buf.WriteString(`</div>`)
+	buf.WriteString(`</div>`)
 	buf.WriteString(`<form class="docs-search" data-doc-search-form>`)
 	buf.WriteString(`<input class="docs-search-input" data-doc-search-input type="text" name="q" placeholder="Search docs" value="`)
 	buf.WriteString(template.HTMLEscapeString(query))
 	buf.WriteString(`" autocomplete="off">`)
 	buf.WriteString(`<button type="submit">Search</button>`)
 	buf.WriteString(`</form>`)
-	buf.WriteString(`<div class="docs-meta">`)
-	buf.WriteString(template.HTMLEscapeString(fmt.Sprintf("%d result(s) from %d docset(s)", len(results), docsetCount)))
-	buf.WriteString(`</div></div>`)
 	if len(results) == 0 {
-		buf.WriteString(`<div class="docs-empty">No results yet. Try a package, symbol, or API name.</div></div>`)
+		buf.WriteString(`<div class="docs-empty">No results yet. Try a package, symbol, or API name.</div>`)
+		buf.WriteString(`</aside><section class="docs-preview-pane"><div class="docs-empty docs-preview-empty">Select a result to preview it here.</div></section></div>`)
 		return template.HTML(buf.String())
 	}
 	buf.WriteString(`<div class="docs-results">`)
 	for _, entry := range results {
-		buf.WriteString(`<button type="button" class="docs-result" data-doc-open="`)
+		className := "docs-result"
+		if selectedID != "" && entry.ID == selectedID {
+			className += " is-active"
+		}
+		buf.WriteString(`<button type="button" class="`)
+		buf.WriteString(className)
+		buf.WriteString(`" data-doc-open="`)
 		buf.WriteString(template.HTMLEscapeString(entry.ID))
 		buf.WriteString(`">`)
 		buf.WriteString(`<div class="docs-result-name">`)
@@ -465,15 +478,47 @@ func renderDocsResultsHTML(root, query string, results []docsEntry, docsetCount 
 		}
 		buf.WriteString(`</div></button>`)
 	}
-	buf.WriteString(`</div></div>`)
+	buf.WriteString(`</div></aside><section class="docs-preview-pane">`)
+	buf.WriteString(`<div class="docs-empty docs-preview-empty">Select a result to preview it here.</div>`)
+	buf.WriteString(`</section></div>`)
 	return template.HTML(buf.String())
 }
 
 func renderDocsPreviewHTML(query string, entry docsEntry, rendered template.HTML) template.HTML {
 	var buf bytes.Buffer
 	buf.WriteString(`<div class="docs-shell docs-shell-preview">`)
-	buf.WriteString(`<div class="docs-toolbar">`)
+	buf.WriteString(`<aside class="docs-sidebar">`)
+	buf.WriteString(`<div class="docs-sidebar-header">`)
 	buf.WriteString(`<button type="button" class="docs-back" data-doc-back="true">Back</button>`)
+	buf.WriteString(`<div class="docs-title">`)
+	buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
+	buf.WriteString(`</div>`)
+	buf.WriteString(`<div class="docs-meta">`)
+	buf.WriteString(template.HTMLEscapeString(query))
+	if entry.RelativePath != "" {
+		buf.WriteString(` · `)
+		buf.WriteString(template.HTMLEscapeString(docEntryDisplayPath(entry)))
+	}
+	buf.WriteString(`</div></div>`)
+	buf.WriteString(`<div class="docs-result is-active">`)
+	buf.WriteString(`<div class="docs-result-name">`)
+	buf.WriteString(template.HTMLEscapeString(entry.Name))
+	buf.WriteString(`</div>`)
+	buf.WriteString(`<div class="docs-result-meta">`)
+	buf.WriteString(template.HTMLEscapeString(entry.DocsetName))
+	if entry.Kind != "" {
+		buf.WriteString(` · `)
+		buf.WriteString(template.HTMLEscapeString(entry.Kind))
+	}
+	if entry.RelativePath != "" {
+		buf.WriteString(` · `)
+		buf.WriteString(template.HTMLEscapeString(docEntryDisplayPath(entry)))
+	}
+	buf.WriteString(`</div></div>`)
+	buf.WriteString(`</aside>`)
+	buf.WriteString(`<section class="docs-preview-pane">`)
+	buf.WriteString(`<button type="button" class="docs-back" data-doc-back="true">Back</button>`)
+	buf.WriteString(`<div class="docs-preview-header">`)
 	buf.WriteString(`<div class="docs-title">`)
 	buf.WriteString(template.HTMLEscapeString(entry.Name))
 	buf.WriteString(`</div>`)
@@ -487,7 +532,7 @@ func renderDocsPreviewHTML(query string, entry docsEntry, rendered template.HTML
 	buf.WriteString(`<iframe class="docs-preview-frame" data-doc-preview-frame="true" srcdoc="`)
 	buf.WriteString(template.HTMLEscapeString(string(rendered)))
 	buf.WriteString(`" sandbox="allow-same-origin allow-popups allow-forms allow-scripts"></iframe>`)
-	buf.WriteString(`</div>`)
+	buf.WriteString(`</section></div>`)
 	return template.HTML(buf.String())
 }
 

@@ -39,6 +39,7 @@ type clientState struct {
 	DocsPreviewTitle  string
 	DocsPreviewPath   string
 	DocsPreviewAnchor string
+	DocsPreviewID     string
 	DocsResults       []docsEntry
 	UpdatedAt         time.Time
 }
@@ -72,6 +73,7 @@ type ViewState struct {
 	DocsPreviewTitle  string         `json:"docsPreviewTitle,omitempty"`
 	DocsPreviewPath   string         `json:"docsPreviewPath,omitempty"`
 	DocsPreviewAnchor string         `json:"docsPreviewAnchor,omitempty"`
+	DocsPreviewID     string         `json:"docsPreviewId,omitempty"`
 	UpdatedAt         time.Time      `json:"updatedAt"`
 	LastType          string         `json:"lastType"`
 }
@@ -172,6 +174,7 @@ func (h *Hub) setActiveClientLocked(sessionID string) {
 	h.state.DocsPreviewTitle = client.DocsPreviewTitle
 	h.state.DocsPreviewPath = client.DocsPreviewPath
 	h.state.DocsPreviewAnchor = client.DocsPreviewAnchor
+	h.state.DocsPreviewID = client.DocsPreviewID
 	h.state.UpdatedAt = time.Now()
 }
 
@@ -217,6 +220,7 @@ func (h *Hub) removeClient(sessionID string) bool {
 		h.state.DocsPreviewTitle = ""
 		h.state.DocsPreviewPath = ""
 		h.state.DocsPreviewAnchor = ""
+		h.state.DocsPreviewID = ""
 		h.state.Connected = false
 		h.state.UpdatedAt = time.Now()
 	}
@@ -461,6 +465,7 @@ func updatePreview(hub *Hub, sessionID string, msg Message) {
 		client.DocsPreviewTitle = ""
 		client.DocsPreviewPath = ""
 		client.DocsPreviewAnchor = ""
+		client.DocsPreviewID = ""
 		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
@@ -503,6 +508,7 @@ func updateViewport(hub *Hub, window *WindowController, sessionID string, msg Me
 		client.DocsPreviewTitle = ""
 		client.DocsPreviewPath = ""
 		client.DocsPreviewAnchor = ""
+		client.DocsPreviewID = ""
 		client.DocsResults = nil
 		if sessionIDPayload != "" {
 			client.SessionID = sessionIDPayload
@@ -731,31 +737,49 @@ const pageHTML = `<!doctype html>
     }
     .docs-shell {
       display: flex;
-      flex-direction: column;
-      gap: 14px;
+      flex-direction: row;
+      gap: 18px;
       width: 100%;
       min-width: 0;
+      align-items: stretch;
     }
-    .docs-toolbar {
+    .docs-sidebar {
+      flex: 0 0 360px;
+      min-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .docs-preview-pane {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .docs-sidebar-header,
+    .docs-preview-header {
       display: flex;
       align-items: center;
       gap: 12px;
       flex-wrap: wrap;
     }
+    .docs-sidebar-header {
+      justify-content: space-between;
+    }
     .docs-title {
       font-size: 15px;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--text);
     }
     .docs-search {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex: 1 1 280px;
-      min-width: 260px;
+      flex-wrap: wrap;
     }
     .docs-search-input {
-      flex: 1;
+      flex: 1 1 220px;
       min-width: 0;
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -778,12 +802,17 @@ const pageHTML = `<!doctype html>
       padding: 10px 14px;
       cursor: pointer;
     }
+    .docs-search button {
+      background: linear-gradient(180deg, #fff, #f5f0e6);
+      font-weight: 600;
+    }
     .docs-result {
       width: 100%;
       padding: 14px 16px;
       text-align: left;
       cursor: pointer;
       transition: background 120ms ease, border-color 120ms ease;
+      display: block;
     }
     .docs-result:hover,
     .docs-result:focus {
@@ -791,10 +820,17 @@ const pageHTML = `<!doctype html>
       border-color: #cfc7b9;
       outline: none;
     }
+    .docs-result.is-active {
+      background: rgba(253, 224, 71, 0.16);
+      border-color: rgba(202, 138, 4, 0.38);
+      box-shadow: inset 3px 0 0 rgba(202, 138, 4, 0.8);
+    }
     .docs-results {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      overflow: auto;
+      padding-right: 4px;
     }
     .docs-result-name {
       font-size: 14px;
@@ -814,20 +850,28 @@ const pageHTML = `<!doctype html>
       background: rgba(255,255,255,0.65);
       color: var(--muted);
     }
-    .docs-preview {
-      width: 100%;
-      min-width: 0;
-      max-width: none;
-    }
     .docs-preview-frame {
       width: 100%;
+      flex: 1 1 auto;
       min-height: 72vh;
       border: 1px solid var(--border);
       border-radius: 16px;
       background: #fff;
       box-sizing: border-box;
     }
-    .docs-shell-preview .docs-toolbar {
+    .docs-shell-preview .docs-sidebar {
+      background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0.55));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .docs-shell-preview .docs-preview-pane {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255,255,255,0.78);
+    }
+    .docs-preview-header {
       position: sticky;
       top: 0;
       padding: 8px 0 12px;
@@ -893,6 +937,7 @@ const pageHTML = `<!doctype html>
     const previewEl = document.getElementById('preview');
     const contentEl = document.querySelector('.content');
     const previewHeadingEl = document.querySelector('.card h2');
+    const docsSearchInput = document.querySelector('[data-doc-search-input]');
     const cursorlineEl = document.createElement('div');
     cursorlineEl.className = 'cursorline-overlay';
     if (contentEl) {
@@ -1070,6 +1115,9 @@ const pageHTML = `<!doctype html>
       positionCursorline(state);
       scrollPreview(state);
       scrollDocsAnchor(state);
+      if (isDocs && docsSearchInput && typeof state.docsQuery === 'string') {
+        docsSearchInput.value = state.docsQuery;
+      }
     };
     applyHeaderVisible(headerVisible);
     window.__applyState({{.StateJSON}});
