@@ -98,6 +98,8 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
 ./bin/nview
 ```
 
+默认监听 `0.0.0.0:7357`, 需要时可以用 `-listen` 覆盖。
+
 2. 在 Neovim 中打开 markdown 文件, 然后执行:
 
 ```vim

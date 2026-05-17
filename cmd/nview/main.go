@@ -254,7 +254,7 @@ func renderAppHTML(state ViewState, headerVisible bool) string {
 }
 
 func main() {
-	listenAddr := flag.String("listen", "127.0.0.1:7357", "tcp listen address")
+	listenAddr := flag.String("listen", "0.0.0.0:7357", "tcp listen address")
 	statePath := flag.String("state-file", defaultStatePath(), "window state file")
 	zealCmd := flag.String("zeal-cmd", "", "Zeal executable path")
 	autoHideMS := flag.Int("auto-hide-ms", 3000, "auto hide interval in milliseconds")
