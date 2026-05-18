@@ -244,8 +244,11 @@ local function normalize_endpoint(endpoint)
 
   local host = tostring(endpoint.host or "")
   local port = tonumber(endpoint.port)
-  if host == "" or not port then
+  if host == "" then
     return nil
+  end
+  if not port then
+    port = 7357
   end
 
   return {
@@ -288,31 +291,14 @@ local function remote_endpoints()
   return endpoints
 end
 
-local function has_custom_remote_endpoint()
-  local configured = state.config.remote_endpoints
-  if type(configured) == "table" and #configured > 0 then
-    return true
-  end
-
-  return not endpoint_equals(state.config.remote_endpoint, config.defaults.remote_endpoint)
-end
-
 local function endpoint_order()
+  local local_ep = normalize_endpoint(state.config.local_endpoint)
   local remotes = remote_endpoints()
-  local local_ep = state.config.local_endpoint
-  local is_ssh = vim.env.SSH_CONNECTION or vim.env.SSH_CLIENT or vim.env.SSH_TTY
-  local custom_remote = has_custom_remote_endpoint()
 
-  if custom_remote or is_ssh then
-    local ordered = {}
-    for _, endpoint in ipairs(remotes) do
-      ordered[#ordered + 1] = { endpoint = endpoint, spawnable = false }
-    end
-    ordered[#ordered + 1] = { endpoint = local_ep, spawnable = false }
-    return ordered
+  local ordered = {}
+  if local_ep then
+    ordered[#ordered + 1] = { endpoint = local_ep, spawnable = true }
   end
-
-  local ordered = { { endpoint = local_ep, spawnable = true } }
   for _, endpoint in ipairs(remotes) do
     ordered[#ordered + 1] = { endpoint = endpoint, spawnable = false }
   end

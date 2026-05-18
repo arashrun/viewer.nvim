@@ -9,6 +9,7 @@
 - Markdown 预览时，右侧独立窗口可以更稳定地渲染 HTML、图片和样式。
 - 离线 API 文档可以直接在本地搜索和打开，不需要切到浏览器。
 - 本地和远程 `nview` 都能用，适合单机开发和 SSH 远程开发两种场景。
+- 连接顺序是本地优先，本地启动失败后再回退到远程地址列表。
 
 ## 编译与安装
 
@@ -69,9 +70,9 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
     require("viewer").setup({
       probe_timeout_ms = 1000,
       auto_start = false,
-      local_endpoint = { host = "127.0.0.1", port = 7357 },
+      local_endpoint = { host = "127.0.0.1" },
       remote_endpoints = {
-        { host = "127.0.0.1", port = 7357 },
+        { host = "127.0.0.1" },
         { host = "192.168.1.10", port = 7357 },
       },
     })
@@ -137,9 +138,9 @@ GOOS=windows GOARCH=arm64 go build -o nview.exe ./cmd/nview
 
 ```lua
 require("viewer").setup({
-  local_endpoint = { host = "127.0.0.1", port = 7357 },
+  local_endpoint = { host = "127.0.0.1" },
   remote_endpoints = {
-    { host = "192.168.1.10", port = 7357 },
+    { host = "192.168.1.10" },
     { host = "10.0.0.8", port = 7357 },
   },
   probe_timeout_ms = 1000,
@@ -156,6 +157,8 @@ require("viewer").setup({
 `remote_endpoints` 会按顺序尝试多个远程地址。
 
 如果你还在使用旧配置，`remote_endpoint` 仍然可用，但优先推荐迁移到 `remote_endpoints`。
+
+`local_endpoint` 和 `remote_endpoints` 里的 `port` 都可以省略，省略时默认使用 `7357`。
 
 如果不想要默认映射:
 
