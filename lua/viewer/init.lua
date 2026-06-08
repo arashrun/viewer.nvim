@@ -17,6 +17,9 @@ local state = {
   reconnect_timer = nil,
   reconnecting = false,
   spawning = false,
+  ready = false,
+  connection_notice_state = nil,
+  pending_success_message = nil,
   mapped_keys = {},
 }
 
@@ -179,6 +182,29 @@ local function notify(msg, level)
   vim.schedule(function()
     vim.notify(msg, level or vim.log.levels.INFO, { title = "viewer.nvim" })
   end)
+end
+
+local function notify_connection_down(msg)
+  if state.connection_notice_state == "down" then
+    return
+  end
+  state.connection_notice_state = "down"
+  state.pending_success_message = nil
+  notify(msg, vim.log.levels.WARN)
+end
+
+local function mark_connection_ready()
+  state.ready = true
+  state.connection_notice_state = "up"
+  if state.pending_success_message then
+    notify(state.pending_success_message)
+    state.pending_success_message = nil
+  end
+end
+
+local function prepare_success_notification(msg)
+  state.ready = false
+  state.pending_success_message = msg
 end
 
 local function current_buffer_filetype()
@@ -410,12 +436,16 @@ local function clear_transport()
   stop_reconnect_timer()
   if state.transport then
     state.transport:set_on_close(nil)
+    state.transport:set_on_message(nil)
     state.transport:close()
   end
   state.transport = nil
   state.active = false
   state.session_kind = nil
   state.reconnecting = false
+  state.ready = false
+  state.connection_notice_state = nil
+  state.pending_success_message = nil
 end
 
 local schedule_preview_sync
@@ -434,9 +464,10 @@ local function install_reconnect_handler(retry_fn)
     end
     state.transport = nil
     state.active = false
+    state.ready = false
     if not state.reconnecting then
       state.reconnecting = true
-      notify("nview disconnected, retrying...", vim.log.levels.WARN)
+      notify_connection_down("nview disconnected, retrying...")
       stop_reconnect_timer()
       state.reconnect_timer = vim.loop.new_timer()
       state.reconnect_timer:start(reconnect_delay_ms, reconnect_delay_ms, vim.schedule_wrap(function()
@@ -470,10 +501,24 @@ local function connect_session(bufnr, transport)
   state.active = true
   state.session_kind = "markdown"
   state.reconnecting = false
+  state.ready = false
   ensure_session_id()
   install_reconnect_handler(function()
     start_preview(bufnr, true)
   end)
+  state.transport:set_on_message(function(message)
+    if state.transport ~= transport then
+      return
+    end
+    if message.type == "ack" then
+      mark_connection_ready()
+    end
+  end)
+  if was_reconnecting then
+    prepare_success_notification("reconnected to nview")
+  else
+    prepare_success_notification("preview started")
+  end
   send_common_session_messages()
   state.transport:send(protocol.preview({
     bufnr = bufnr,
@@ -485,11 +530,6 @@ local function connect_session(bufnr, transport)
   attach_autocmds()
   schedule_preview_sync()
   schedule_viewport_sync()
-  if was_reconnecting then
-    notify("reconnected to nview")
-  else
-    notify("preview started")
-  end
 end
 
 local function connect_docs_session(query, transport)
@@ -498,22 +538,31 @@ local function connect_docs_session(query, transport)
   state.active = true
   state.session_kind = "docs"
   state.reconnecting = false
+  state.ready = false
   state.last_docs_query = query
   ensure_session_id()
   install_reconnect_handler(function()
     start_docs_query(query, true)
   end)
+  state.transport:set_on_message(function(message)
+    if state.transport ~= transport then
+      return
+    end
+    if message.type == "ack" then
+      mark_connection_ready()
+    end
+  end)
+  if was_reconnecting then
+    prepare_success_notification("reconnected to nview")
+  else
+    prepare_success_notification("docs query started")
+  end
   send_common_session_messages()
   state.transport:send(protocol.docs_query({
     query = query,
     filetype = current_buffer_filetype(),
     session_id = ensure_session_id(),
   }))
-  if was_reconnecting then
-    notify("reconnected to nview")
-  else
-    notify("docs query started")
-  end
 end
 
 schedule_preview_sync = function()

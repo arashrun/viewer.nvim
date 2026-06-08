@@ -11,6 +11,8 @@ local function new_transport()
     pending = {},
     endpoint = nil,
     on_close = nil,
+    on_message = nil,
+    read_buffer = "",
   }, M)
 end
 
@@ -48,6 +50,22 @@ local function connect(endpoint, timeout_ms, callback)
       end
       if chunk == nil then
         transport:_notify_close("eof")
+        return
+      end
+
+      transport.read_buffer = transport.read_buffer .. chunk
+      while true do
+        local newline = transport.read_buffer:find("\n", 1, true)
+        if not newline then
+          break
+        end
+
+        local line = transport.read_buffer:sub(1, newline - 1)
+        transport.read_buffer = transport.read_buffer:sub(newline + 1)
+        local message = protocol.decode(line)
+        if message and transport.on_message then
+          transport.on_message(message)
+        end
       end
     end)
     callback(true, transport)
@@ -110,6 +128,10 @@ end
 
 function M:set_on_close(cb)
   self.on_close = cb
+end
+
+function M:set_on_message(cb)
+  self.on_message = cb
 end
 
 function M:close()
