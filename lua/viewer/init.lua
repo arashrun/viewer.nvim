@@ -421,6 +421,8 @@ end
 local schedule_preview_sync
 local schedule_viewport_sync
 local attach_autocmds
+local start_preview
+local start_docs_query
 
 local function install_reconnect_handler(retry_fn)
   if not state.transport then
@@ -463,13 +465,14 @@ local function send_common_session_messages()
 end
 
 local function connect_session(bufnr, transport)
+  local was_reconnecting = state.reconnecting
   state.transport = transport
   state.active = true
   state.session_kind = "markdown"
   state.reconnecting = false
   ensure_session_id()
   install_reconnect_handler(function()
-    M.preview()
+    start_preview(bufnr, true)
   end)
   send_common_session_messages()
   state.transport:send(protocol.preview({
@@ -482,10 +485,15 @@ local function connect_session(bufnr, transport)
   attach_autocmds()
   schedule_preview_sync()
   schedule_viewport_sync()
-  notify("preview started")
+  if was_reconnecting then
+    notify("reconnected to nview")
+  else
+    notify("preview started")
+  end
 end
 
 local function connect_docs_session(query, transport)
+  local was_reconnecting = state.reconnecting
   state.transport = transport
   state.active = true
   state.session_kind = "docs"
@@ -493,7 +501,7 @@ local function connect_docs_session(query, transport)
   state.last_docs_query = query
   ensure_session_id()
   install_reconnect_handler(function()
-    M.docs_query(query)
+    start_docs_query(query, true)
   end)
   send_common_session_messages()
   state.transport:send(protocol.docs_query({
@@ -501,7 +509,11 @@ local function connect_docs_session(query, transport)
     filetype = current_buffer_filetype(),
     session_id = ensure_session_id(),
   }))
-  notify("docs query started")
+  if was_reconnecting then
+    notify("reconnected to nview")
+  else
+    notify("docs query started")
+  end
 end
 
 schedule_preview_sync = function()
@@ -668,7 +680,7 @@ local function pick_endpoint(callback)
   try_next(1, false)
 end
 
-local function start_preview(bufnr)
+start_preview = function(bufnr, silent_failure)
   if not is_markdown_buffer(bufnr) then
     notify("current buffer is not a supported markdown filetype", vim.log.levels.WARN)
     return
@@ -677,12 +689,55 @@ local function start_preview(bufnr)
   state.bufnr = bufnr
   pick_endpoint(function(ok, transport_or_err)
     if not ok then
-      notify("failed to connect to nview: " .. transport_or_err, vim.log.levels.ERROR)
+      if not silent_failure then
+        notify("failed to connect to nview: " .. transport_or_err, vim.log.levels.ERROR)
+      end
       return
     end
 
     stop_reconnect_timer()
     connect_session(bufnr, transport_or_err)
+  end)
+end
+
+start_docs_query = function(query, silent_failure)
+  local normalized = vim.trim(query or "")
+  if normalized == "" then
+    normalized = vim.trim(vim.fn.expand("<cword>"))
+  end
+  if normalized == "" then
+    notify("ViewerDocsQuery expects a non-empty query", vim.log.levels.ERROR)
+    return
+  end
+
+  state.last_docs_query = normalized
+  local filetype = current_buffer_filetype()
+  if state.active and state.transport then
+    state.session_kind = "docs"
+    stop_preview_timer()
+    stop_viewport_timer()
+    install_reconnect_handler(function()
+      start_docs_query(normalized, true)
+    end)
+    state.transport:send(protocol.docs_query({
+      query = normalized,
+      filetype = filetype,
+      session_id = ensure_session_id(),
+    }))
+    notify("docs query: " .. normalized)
+    return
+  end
+
+  pick_endpoint(function(ok, transport_or_err)
+    if not ok then
+      if not silent_failure then
+        notify("failed to connect to nview: " .. transport_or_err, vim.log.levels.ERROR)
+      end
+      return
+    end
+
+    stop_reconnect_timer()
+    connect_docs_session(normalized, transport_or_err)
   end)
 end
 
@@ -727,42 +782,7 @@ function M.preview()
 end
 
 function M.docs_query(query)
-  local normalized = vim.trim(query or "")
-  if normalized == "" then
-    normalized = vim.trim(vim.fn.expand("<cword>"))
-  end
-  if normalized == "" then
-    notify("ViewerDocsQuery expects a non-empty query", vim.log.levels.ERROR)
-    return
-  end
-
-  state.last_docs_query = normalized
-  local filetype = current_buffer_filetype()
-  if state.active and state.transport then
-    state.session_kind = "docs"
-    stop_preview_timer()
-    stop_viewport_timer()
-    install_reconnect_handler(function()
-      M.docs_query(normalized)
-    end)
-    state.transport:send(protocol.docs_query({
-      query = normalized,
-      filetype = filetype,
-      session_id = ensure_session_id(),
-    }))
-    notify("docs query: " .. normalized)
-    return
-  end
-
-  pick_endpoint(function(ok, transport_or_err)
-    if not ok then
-      notify("failed to connect to nview: " .. transport_or_err, vim.log.levels.ERROR)
-      return
-    end
-
-    stop_reconnect_timer()
-    connect_docs_session(normalized, transport_or_err)
-  end)
+  start_docs_query(query, false)
 end
 
 function M.docs_query_current_word()
